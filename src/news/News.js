@@ -39,6 +39,17 @@ const News = () => {
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [refreshInterval, setRefreshInterval] = useState(null);
     const [nextRefreshTime, setNextRefreshTime] = useState(null);
+    const [showGeneratedNews, setShowGeneratedNews] = useState(false);
+
+    // Debug: Log article URLs when articles state changes
+    useEffect(() => {
+        if (articles.length > 0) {
+            console.log('Loaded articles URLs:');
+            articles.forEach((article, index) => {
+                console.log(`Article ${index + 1}:`, article.url);
+            });
+        }
+    }, [articles]);
 
     const isActive = (path) => location.pathname === path;
 
@@ -63,7 +74,7 @@ const News = () => {
         setError(null);
 
         try {
-                            console.log('Loading LSE news with priority:', filters.priority);
+            console.log('Loading LSE news with priority:', filters.priority);
 
             const [
                 newsArticles,
@@ -83,23 +94,30 @@ const News = () => {
             setBreakingNews(breakingArticles);
             setMarketMovingNews(marketArticles);
             setLastUpdated(new Date());
-            
+
+            // Separate generated/curated news from RSS feed news
+            const rssFeedNews = newsArticles.filter(article => article.isRSSFeed);
+            const generatedNews = newsArticles.filter(article => !article.isRSSFeed);
+
+            setArticles(rssFeedNews);
+            setShowGeneratedNews(generatedNews.length > 0);
+
             // Update API status based on actual article source info            
             // Check for actual RSS/API data vs curated content
-            const hasYahooRSS = newsArticles.some(a => a.apiSource?.includes('Yahoo Finance RSS') || a.source?.includes('Yahoo Finance RSS'));
-            const hasGuardianRSS = newsArticles.some(a => a.apiSource?.includes('Guardian Business RSS') || a.source?.includes('Guardian RSS'));
-            const hasBBCRSS = newsArticles.some(a => a.apiSource?.includes('BBC Business RSS'));
-            
+            const hasYahooRSS = rssFeedNews.some(a => a.apiSource?.includes('Yahoo Finance RSS') || a.source?.includes('Yahoo Finance RSS'));
+            const hasGuardianRSS = rssFeedNews.some(a => a.apiSource?.includes('Guardian Business RSS') || a.source?.includes('Guardian RSS'));
+            const hasBBCRSS = rssFeedNews.some(a => a.apiSource?.includes('BBC Business RSS'));
+
             setApiStatus({
                 newsData: hasYahooRSS ? 'active' : 
-                         newsArticles.some(a => a.source?.includes('Yahoo Finance') || a.apiSource?.includes('Yahoo Finance')) ? 'limited' : 'limited',
+                         rssFeedNews.some(a => a.source?.includes('Yahoo Finance') || a.apiSource?.includes('Yahoo Finance')) ? 'limited' : 'limited',
                 finnhub: hasBBCRSS ? 'active' :
-                        newsArticles.some(a => a.source?.includes('BBC Business') || a.apiSource?.includes('BBC Business')) ? 'limited' : 'limited',
+                        rssFeedNews.some(a => a.source?.includes('BBC Business') || a.apiSource?.includes('BBC Business')) ? 'limited' : 'limited',
                 rss: hasGuardianRSS ? 'active' : 
-                     newsArticles.some(a => a.source?.includes('Guardian') || a.apiSource?.includes('Guardian Business')) ? 'limited' : 'limited'
+                     rssFeedNews.some(a => a.source?.includes('Guardian') || a.apiSource?.includes('Guardian Business')) ? 'limited' : 'limited'
             });
 
-            console.log(`Loaded ${newsArticles.length} news articles from financial sources`);
+            console.log(`Loaded ${rssFeedNews.length} news articles from financial sources`);
             console.log(`RSS Data - Yahoo: ${hasYahooRSS}, BBC: ${hasBBCRSS}, Guardian: ${hasGuardianRSS}`);
 
             } catch (err) {
@@ -119,7 +137,12 @@ const News = () => {
 
     // Filter articles based on current filters
     useEffect(() => {
-        const filtered = lseNewsService.filterNews(articles, {
+        // Filter out articles with missing or invalid URLs
+        const validArticles = articles.filter(article => {
+            return article.url && typeof article.url === 'string' && article.url.trim() !== '';
+        });
+
+        const filtered = lseNewsService.filterNews(validArticles, {
             searchTerm: filters.searchTerm,
             category: filters.category
         });
@@ -531,14 +554,14 @@ const News = () => {
                         <div className="space-y-2">
                             {breakingNews.map((article) => (
                                 <div key={article.id} className="flex items-start justify-between">
-                                    <a 
-                                        href={article.url} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex-1"
-                                    >
-                                        {article.title}
-                                    </a>
+<a 
+    href={article.url} 
+    target="_blank" 
+    rel="noopener noreferrer"
+    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex-1"
+>
+    {article.title}
+</a>
                                     <span className={`${themeStyles.textMuted} text-sm whitespace-nowrap ml-4`}>
                                         {formatTimeAgo(article.publishedAt)}
                                     </span>
@@ -556,63 +579,64 @@ const News = () => {
                             All LSE News (Showing {Math.min(displayedArticlesCount, filteredArticles.length)} of {filteredArticles.length})
                         </h2>
                         <div className={`${themeStyles.cardBg} rounded-lg border ${themeStyles.headerBorder} overflow-hidden`}>
-                            {filteredArticles.length === 0 ? (
-                                <div className="p-8 text-center">
-                                    <FiSearch className={`w-12 h-12 ${themeStyles.textMuted} mx-auto mb-4`} />
-                                    <h3 className="font-semibold mb-2">No articles found</h3>
-                                    <p className={themeStyles.textSecondary}>Try adjusting your search terms or filters</p>
+                {filteredArticles.length === 0 ? (
+                    <div className="p-8 text-center">
+                        <FiSearch className={`w-12 h-12 ${themeStyles.textMuted} mx-auto mb-4`} />
+                        <h3 className="font-semibold mb-2">No articles found</h3>
+                        <p className={themeStyles.textSecondary}>Try adjusting your search terms or filters</p>
+                    </div>
+                ) : (
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {filteredArticles.slice(0, displayedArticlesCount).map((article) => (
+                            <div key={article.id} className="p-6 hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
+                                <h3 className="font-semibold mb-2">
+<a 
+    href={article.url} 
+    target="_blank" 
+    rel="noopener noreferrer"
+    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+    title={article.isRSSFeed ? 'Click to read full article' : 'Curated/generated news, URL may be general'}
+>
+    {article.title}
+</a>
+                                </h3>
+                                {article.summary && (
+                                    <p className={`${themeStyles.textSecondary} mb-3 line-clamp-3`}>
+                                        {article.summary}
+                                    </p>
+                                )}
+                                <div className="flex items-center justify-between text-sm">
+                                    <div className="flex items-center gap-4">
+                                        <span className={themeStyles.textMuted}>{article.source}</span>
+                                        <span className={themeStyles.textMuted}>{formatTimeAgo(article.publishedAt)}</span>
+                                        <span className={`px-2 py-1 rounded text-xs ${themeStyles.buttonSecondary}`}>
+                                            {article.apiSource}
+                                        </span>
+                                    </div>
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                        getRelevanceBadge(article.relevanceScore).text === 'High' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
+                                        getRelevanceBadge(article.relevanceScore).text === 'Medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
+                                        'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                                    }`}>
+                                        {getRelevanceBadge(article.relevanceScore).text}
+                                    </span>
                                 </div>
-                            ) : (
-                                <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                                    {filteredArticles.slice(0, displayedArticlesCount).map((article) => (
-                                        <div key={article.id} className="p-6 hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
-                                            <h3 className="font-semibold mb-2">
-                                                <a 
-                                                    href={article.url} 
-                                                    target="_blank" 
-                                                    rel="noopener noreferrer"
-                                                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                                                >
-                                                    {article.title}
-                                                </a>
-                                            </h3>
-                                            {article.summary && (
-                                                <p className={`${themeStyles.textSecondary} mb-3 line-clamp-3`}>
-                                                    {article.summary}
-                                                </p>
-                                            )}
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-4">
-                                                    <span className={themeStyles.textMuted}>{article.source}</span>
-                                                    <span className={themeStyles.textMuted}>{formatTimeAgo(article.publishedAt)}</span>
-                                                    <span className={`px-2 py-1 rounded text-xs ${themeStyles.buttonSecondary}`}>
-                                                        {article.apiSource}
-                                                    </span>
-                                                </div>
-                                                <span className={`px-2 py-1 rounded text-xs ${
-                                                    getRelevanceBadge(article.relevanceScore).text === 'High' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
-                                                    getRelevanceBadge(article.relevanceScore).text === 'Medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
-                                                    'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                                                }`}>
-                                                    {getRelevanceBadge(article.relevanceScore).text}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    
-                                    {/* Load More Button */}
-                                    {filteredArticles.length > displayedArticlesCount && (
-                                        <div className="p-6 text-center border-t border-gray-200 dark:border-gray-700">
-                                            <button
-                                                onClick={() => setDisplayedArticlesCount(prev => prev + 20)}
-                                                className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                                            >
-                                                Load More Articles ({filteredArticles.length - displayedArticlesCount} remaining)
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            </div>
+                        ))}
+                        
+                        {/* Load More Button */}
+                        {filteredArticles.length > displayedArticlesCount && (
+                            <div className="p-6 text-center border-t border-gray-200 dark:border-gray-700">
+                                <button
+                                    onClick={() => setDisplayedArticlesCount(prev => prev + 20)}
+                                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                                >
+                                    Load More Articles ({filteredArticles.length - displayedArticlesCount} remaining)
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
                         </div>
                     </div>
 

@@ -1,6 +1,3 @@
-// lseNewsService.js
-// LSE Financial News Service using RSS Feeds and News Aggregators
-
 import lseCompanies from './lseCompaniesParser.js';
 
 class LSENewsService {
@@ -94,7 +91,6 @@ class LSENewsService {
                 this.fetchFromYahooFinance(companySymbols),
                 this.fetchFromFinancialTimes(),
                 this.fetchFromMarketWatch(),
-                this.fetchFromBloomberg(),
                 this.fetchFromGuardianBusiness(),
                 this.fetchFromBBCBusiness(),
                 this.fetchFromReutersUK(),
@@ -110,7 +106,7 @@ class LSENewsService {
 
             // Collect successful results and track source status
             results.forEach((result, index) => {
-                const sourceNames = ['Yahoo Finance', 'Financial Times', 'MarketWatch', 'Bloomberg', 'Guardian Business', 'BBC Business', 'Reuters UK', 'Sky News Business', 'Investors Chronicle', 'City AM'];
+                const sourceNames = ['Yahoo Finance', 'Financial Times', 'MarketWatch', 'Guardian Business', 'BBC Business', 'Reuters UK', 'Sky News Business', 'Investors Chronicle', 'City AM'];
                 if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
                     console.log(`${sourceNames[index]} returned ${result.value.length} articles`);
                     allArticles = allArticles.concat(result.value);
@@ -150,11 +146,11 @@ class LSENewsService {
                 article._sourceStatus = {
                     hasRSSData: hasRSSData,
                     successfulSources: successfulSources,
-                    totalSources: 10
+                    totalSources: 9
                 };
             });
 
-            console.log(`Loaded ${filteredArticles.length} LSE-relevant articles from ${successfulSources}/5 financial sources`);
+            console.log(`Loaded ${filteredArticles.length} LSE-relevant articles from ${successfulSources}/9 financial sources`);
             console.log(`RSS/API data available: ${hasRSSData ? 'Yes' : 'No'}`);
 
             return filteredArticles.slice(0, maxArticles);
@@ -168,7 +164,7 @@ class LSENewsService {
                 article._sourceStatus = {
                     hasRSSData: false,
                     successfulSources: 0,
-                    totalSources: 5
+                    totalSources: 9
                 };
             });
             return fallbackArticles.slice(0, maxArticles);
@@ -251,12 +247,15 @@ class LSENewsService {
         return majorCompanies.slice(0, 8).map((company, index) => {
             const template = newsTemplates[index % newsTemplates.length];
             const title = template.replace('{company}', company.name);
+            const url = company.symbol
+                ? `https://uk.finance.yahoo.com/quote/${encodeURIComponent(company.symbol)}.L/news`
+                : `https://uk.finance.yahoo.com/search?q=${encodeURIComponent(company.name)}`;
 
             return {
-                id: `yahoo_lse_${company.symbol}_${index}`,
+                id: `yahoo_lse_${company.symbol || company.name}_${index}`,
                 title: title,
-                summary: `${company.name} (${company.symbol}) continues to show strong performance in the London market. Recent trading activity suggests investor confidence remains high with institutional backing.`,
-                url: `https://uk.finance.yahoo.com/quote/${company.symbol}.L/news`,
+                summary: `${company.name} (${company.symbol || company.name}) continues to show strong performance in the London market. Recent trading activity suggests investor confidence remains high with institutional backing.`,
+                url: url,
                 publishedAt: new Date(Date.now() - Math.random() * 86400000 * 2).toISOString(),
                 source: 'Yahoo Finance UK',
                 category: 'lse',
@@ -296,12 +295,13 @@ class LSENewsService {
         return companies.slice(0, 6).map((company, index) => {
             const template = ftTemplates[index % ftTemplates.length];
             const title = template.replace('{company}', company.name);
+            const url = `https://www.ft.com/search?q=${encodeURIComponent(company.name)}`;
 
             return {
-                id: `ft_${company.symbol}_${index}`,
+                id: `ft_${company.symbol || company.name}_${index}`,
                 title: title,
                 summary: `Financial Times analysis reveals ${company.name} continues to demonstrate strong fundamentals despite market headwinds. The company's strategic positioning in the UK market remains robust.`,
-                url: `https://www.ft.com/content/${company.symbol.toLowerCase()}-market-analysis`,
+                url: url,
                 publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
                 source: 'Financial Times',
                 category: 'market',
@@ -341,58 +341,20 @@ class LSENewsService {
             const title = template.replace('{company}', company.name);
             const priceChange = (Math.random() - 0.5) * 10;
             const priceDirection = priceChange > 0 ? 'up' : 'down';
+            const url = company.symbol
+                ? `https://www.marketwatch.com/investing/stock/${encodeURIComponent(company.symbol)}?countryCode=UK`
+                : `https://www.marketwatch.com/search?q=${encodeURIComponent(company.name)}`;
 
             return {
-                id: `mw_${company.symbol}_${index}`,
+                id: `mw_${company.symbol || company.name}_${index}`,
                 title: title,
                 summary: `${company.name} shares are trading ${priceDirection} ${Math.abs(priceChange).toFixed(2)}% as investors react to latest developments. Trading volume remains above average for the LSE-listed company.`,
-                url: `https://www.marketwatch.com/investing/stock/${company.symbol}`,
+                url: url,
                 publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
                 source: 'MarketWatch',
                 category: 'market',
                 apiSource: 'MarketWatch',
                 relevanceScore: 7
-            };
-        });
-    }
-
-    // Fetch from Bloomberg
-    async fetchFromBloomberg() {
-        try {
-            return this.generateBloombergNews();
-        } catch (error) {
-            console.log('Bloomberg fetch failed:', error.message);
-            return this.generateBloombergNews();
-        }
-    }
-
-    // Generate Bloomberg style news
-    generateBloombergNews() {
-        const companies = lseCompanies.getMajorCompanies().slice(0, 8);
-
-        const bloombergTemplates = [
-            "{company} CEO discusses growth strategy in exclusive interview",
-            "London trading: {company} volume surges on institutional buying",
-            "{company} board approves capital allocation plan",
-            "UK market focus: {company} maintains competitive edge",
-            "{company} quarterly results exceed analyst expectations",
-            "Private equity interest in {company} drives speculation"
-        ];
-
-        return companies.slice(0, 6).map((company, index) => {
-            const template = bloombergTemplates[index % bloombergTemplates.length];
-            const title = template.replace('{company}', company.name);
-
-            return {
-                id: `bloomberg_${company.symbol}_${index}`,
-                title: title,
-                summary: `Bloomberg Terminal data shows ${company.name} continues to attract institutional interest with strong fundamentals supporting current valuations in the London market.`,
-                url: `https://www.bloomberg.com/quote/${company.symbol}:LN`,
-                publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
-                source: 'Bloomberg',
-                category: 'market',
-                apiSource: 'Bloomberg Terminal',
-                relevanceScore: 9
             };
         });
     }
@@ -467,12 +429,13 @@ class LSENewsService {
         return companies.slice(0, 5).map((company, index) => {
             const template = guardianTemplates[index % guardianTemplates.length];
             const title = template.replace('{company}', company.name);
+            const url = `https://www.theguardian.com/business?query=${encodeURIComponent(company.name)}`;
 
             return {
-                id: `guardian_style_${company.symbol}_${index}`,
+                id: `guardian_style_${company.symbol || company.name}_${index}`,
                 title: title,
                 summary: `The Guardian examines how ${company.name} is navigating current economic challenges while maintaining its commitment to stakeholder capitalism and sustainable business practices.`,
-                url: `https://www.theguardian.com/business/${company.symbol.toLowerCase()}-news-analysis`,
+                url: url,
                 publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
                 source: 'The Guardian Business',
                 category: 'market',
@@ -489,7 +452,7 @@ class LSENewsService {
                 id: 'curated_1',
                 title: 'FTSE 100 Index Closes Higher on Strong Banking Sector Performance',
                 summary: 'London\'s main stock index gained 0.8% today, led by major banks including Lloyds Banking Group and Barclays. Positive economic data from the UK boosted investor sentiment across financial services.',
-                url: 'https://finance.yahoo.com/news/ftse-100-closes-higher-banking-152000934.html',
+                url: 'https://finance.yahoo.com/quote/%5EFTSE/history',
                 publishedAt: new Date(Date.now() - 3600000).toISOString(),
                 source: 'Yahoo Finance UK',
                 category: 'market',
@@ -500,7 +463,7 @@ class LSENewsService {
                 id: 'curated_2',
                 title: 'BP and Shell Lead FTSE Energy Gains Amid Oil Price Rally',
                 summary: 'British energy giants BP and Shell saw significant gains today as Brent crude oil prices climbed above $85 per barrel. Both companies benefited from strong quarterly earnings reports.',
-                url: 'https://finance.yahoo.com/news/bp-shell-lead-ftse-energy-143000821.html',
+                url: 'https://finance.yahoo.com/quote/BP.L/news',
                 publishedAt: new Date(Date.now() - 7200000).toISOString(),
                 source: 'Financial Times',
                 category: 'lse',
@@ -511,7 +474,7 @@ class LSENewsService {
                 id: 'curated_3',
                 title: 'Vodafone Group Announces 5G Network Expansion Across UK',
                 summary: 'Telecommunications giant Vodafone revealed plans to expand its 5G coverage to reach 80% of the UK population by end of 2024. The announcement drove shares higher in morning trading.',
-                url: 'https://www.marketwatch.com/story/vodafone-announces-5g-network-expansion-uk-2024-01-15',
+                url: 'https://finance.yahoo.com/quote/VOD.L/news',
                 publishedAt: new Date(Date.now() - 10800000).toISOString(),
                 source: 'MarketWatch',
                 category: 'lse',
@@ -522,18 +485,18 @@ class LSENewsService {
                 id: 'curated_4',
                 title: 'Rolls-Royce Holdings Secures Major Defense Contract',
                 summary: 'Aerospace and defense company Rolls-Royce announced a £2.6 billion contract win for next-generation military engines. The deal is expected to support thousands of UK manufacturing jobs.',
-                url: 'https://finance.yahoo.com/news/rolls-royce-secures-major-defense-131000567.html',
+                url: 'https://finance.yahoo.com/quote/RR.L/news',
                 publishedAt: new Date(Date.now() - 14400000).toISOString(),
-                source: 'Bloomberg',
+                source: 'Yahoo Finance UK',
                 category: 'lse',
-                apiSource: 'Bloomberg Terminal',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 8
             },
             {
                 id: 'curated_5',
                 title: 'AstraZeneca Shares Rise on Positive Drug Trial Results',
                 summary: 'Pharmaceutical major AstraZeneca reported successful Phase 3 trials for its new oncology treatment. The positive results could lead to regulatory approval and significant revenue potential.',
-                url: 'https://www.marketwatch.com/story/astrazeneca-shares-rise-positive-drug-trial-results-2024-01-14',
+                url: 'https://finance.yahoo.com/quote/AZN.L/news',
                 publishedAt: new Date(Date.now() - 18000000).toISOString(),
                 source: 'The Guardian Business',
                 category: 'lse',
@@ -544,7 +507,7 @@ class LSENewsService {
                 id: 'curated_6',
                 title: 'UK Inflation Drops to 2.1% in Latest Reading',
                 summary: 'Consumer price inflation continued its downward trend, reaching 2.1% year-on-year, bringing it closer to the Bank of England\'s 2% target. The reading supports expectations for stable interest rates.',
-                url: 'https://finance.yahoo.com/news/uk-inflation-drops-2-1-120000445.html',
+                url: 'https://www.bbc.co.uk/news/business',
                 publishedAt: new Date(Date.now() - 21600000).toISOString(),
                 source: 'BBC Business',
                 category: 'market',
@@ -555,7 +518,7 @@ class LSENewsService {
                 id: 'curated_7',
                 title: 'Barclays Reports Better-than-Expected Q3 Results',
                 summary: 'Barclays PLC exceeded analyst expectations with strong investment banking revenues and improved credit loss provisions. The bank raised its full-year guidance following the robust performance.',
-                url: 'https://www.marketwatch.com/story/barclays-reports-better-than-expected-q3-results-2024-01-13',
+                url: 'https://finance.yahoo.com/quote/BARC.L/news',
                 publishedAt: new Date(Date.now() - 25200000).toISOString(),
                 source: 'Reuters',
                 category: 'lse',
@@ -566,7 +529,7 @@ class LSENewsService {
                 id: 'curated_8',
                 title: 'Sterling Strengthens Against Dollar on UK Economic Data',
                 summary: 'The British pound gained 0.6% against the US dollar following positive UK retail sales and manufacturing data. Cable is trading above 1.27 for the first time in three weeks.',
-                url: 'https://finance.yahoo.com/news/sterling-strengthens-dollar-uk-economic-154000789.html',
+                url: 'https://finance.yahoo.com/quote/GBPUSD=X',
                 publishedAt: new Date(Date.now() - 28800000).toISOString(),
                 source: 'Financial Times',
                 category: 'market',
@@ -577,7 +540,7 @@ class LSENewsService {
                 id: 'curated_9',
                 title: 'Tesco PLC Reports Strong Holiday Sales Performance',
                 summary: 'Britain\'s largest retailer Tesco announced robust holiday trading with like-for-like sales growth of 4.2%. The supermarket chain continues to gain market share in the competitive grocery sector.',
-                url: 'https://www.marketwatch.com/story/tesco-plc-reports-strong-holiday-sales-performance-2024-01-12',
+                url: 'https://finance.yahoo.com/quote/TSCO.L/news',
                 publishedAt: new Date(Date.now() - 32400000).toISOString(),
                 source: 'Sky News Business',
                 category: 'lse',
@@ -588,7 +551,7 @@ class LSENewsService {
                 id: 'curated_10',
                 title: 'HSBC Holdings Increases Dividend Despite Economic Headwinds',
                 summary: 'Banking giant HSBC announced a 10% increase in its quarterly dividend, signaling confidence in its capital position and future earnings potential amid global economic uncertainty.',
-                url: 'https://finance.yahoo.com/news/hsbc-holdings-increases-dividend-despite-141000623.html',
+                url: 'https://finance.yahoo.com/quote/HSBA.L/news',
                 publishedAt: new Date(Date.now() - 36000000).toISOString(),
                 source: 'Reuters UK',
                 category: 'lse',
@@ -599,7 +562,7 @@ class LSENewsService {
                 id: 'curated_11',
                 title: 'Unilever Expands Sustainable Product Portfolio',
                 summary: 'Consumer goods giant Unilever unveiled plans to invest £2 billion in sustainable brands over the next three years, responding to growing consumer demand for environmentally friendly products.',
-                url: 'https://www.marketwatch.com/story/unilever-expands-sustainable-product-portfolio-2024-01-11',
+                url: 'https://finance.yahoo.com/quote/ULVR.L/news',
                 publishedAt: new Date(Date.now() - 39600000).toISOString(),
                 source: 'The Guardian Business',
                 category: 'lse',
@@ -610,18 +573,18 @@ class LSENewsService {
                 id: 'curated_12',
                 title: 'BT Group Completes 5G Infrastructure Rollout Milestone',
                 summary: 'Telecommunications provider BT Group achieved 70% 5G coverage across major UK cities, ahead of schedule. The company expects the enhanced network to drive premium service revenues.',
-                url: 'https://finance.yahoo.com/news/bt-group-completes-5g-infrastructure-132000456.html',
+                url: 'https://finance.yahoo.com/quote/BT.A.L/news',
                 publishedAt: new Date(Date.now() - 43200000).toISOString(),
-                source: 'Bloomberg',
+                source: 'Financial Times',
                 category: 'lse',
-                apiSource: 'Bloomberg Terminal',
+                apiSource: 'Financial Times',
                 relevanceScore: 7
             },
             {
                 id: 'curated_13',
                 title: 'Rio Tinto Reports Record Iron Ore Production',
                 summary: 'Mining giant Rio Tinto announced record quarterly iron ore production of 87.1 million tonnes, benefiting from strong demand from steel producers and optimized mining operations.',
-                url: 'https://www.marketwatch.com/story/rio-tinto-reports-record-iron-ore-production-2024-01-10',
+                url: 'https://finance.yahoo.com/quote/RIO.L/news',
                 publishedAt: new Date(Date.now() - 46800000).toISOString(),
                 source: 'MarketWatch',
                 category: 'lse',
@@ -632,7 +595,7 @@ class LSENewsService {
                 id: 'curated_14',
                 title: 'GSK Advances COVID Vaccine Development Programs',
                 summary: 'Pharmaceutical company GSK announced positive interim results for its next-generation COVID-19 vaccine candidate, potentially offering enhanced protection against emerging variants.',
-                url: 'https://finance.yahoo.com/news/gsk-advances-covid-vaccine-development-144000712.html',
+                url: 'https://finance.yahoo.com/quote/GSK.L/news',
                 publishedAt: new Date(Date.now() - 50400000).toISOString(),
                 source: 'BBC Business',
                 category: 'lse',
@@ -643,7 +606,7 @@ class LSENewsService {
                 id: 'curated_15',
                 title: 'Prudential PLC Expands Asian Insurance Operations',
                 summary: 'Insurance group Prudential announced a £1.5 billion investment to expand its life insurance operations across Southeast Asia, targeting the growing middle class in the region.',
-                url: 'https://www.marketwatch.com/story/prudential-plc-expands-asian-insurance-operations-2024-01-09',
+                url: 'https://finance.yahoo.com/quote/PRU.L/news',
                 publishedAt: new Date(Date.now() - 54000000).toISOString(),
                 source: 'Financial Times',
                 category: 'lse',
@@ -654,7 +617,7 @@ class LSENewsService {
                 id: 'curated_16',
                 title: 'UK Housing Market Shows Signs of Stabilization',
                 summary: 'Latest data from Halifax and Nationwide shows UK house prices stabilizing after months of volatility, with mortgage approvals increasing for the third consecutive month.',
-                url: 'https://finance.yahoo.com/news/uk-housing-market-shows-signs-135000589.html',
+                url: 'https://www.bbc.co.uk/news/business',
                 publishedAt: new Date(Date.now() - 57600000).toISOString(),
                 source: 'Halifax',
                 category: 'market',
@@ -665,7 +628,7 @@ class LSENewsService {
                 id: 'curated_17',
                 title: 'Lloyds Banking Group Launches Green Lending Initiative',
                 summary: 'Lloyds Banking Group committed £15 billion to green and sustainable lending by 2025, supporting UK businesses transitioning to net-zero carbon operations.',
-                url: 'https://www.marketwatch.com/story/lloyds-banking-group-launches-green-lending-initiative-2024-01-08',
+                url: 'https://finance.yahoo.com/quote/LLOY.L/news',
                 publishedAt: new Date(Date.now() - 61200000).toISOString(),
                 source: 'City AM',
                 category: 'lse',
@@ -676,7 +639,7 @@ class LSENewsService {
                 id: 'curated_18',
                 title: 'Standard Chartered Reports Strong Asian Growth',
                 summary: 'Standard Chartered Bank exceeded expectations with 12% growth in Asian markets, driven by robust corporate banking and wealth management revenues in Hong Kong and Singapore.',
-                url: 'https://finance.yahoo.com/news/standard-chartered-reports-strong-asian-142000678.html',
+                url: 'https://finance.yahoo.com/quote/STAN.L/news',
                 publishedAt: new Date(Date.now() - 64800000).toISOString(),
                 source: 'Investors Chronicle',
                 category: 'lse',
@@ -728,7 +691,7 @@ class LSENewsService {
             if (lowerText.includes(keyword)) score += 3;
         });
 
-        // Check for medium relevance  
+        // Check for medium relevance
         mediumKeywords.forEach(keyword => {
             if (lowerText.includes(keyword)) score += 1;
         });
@@ -775,7 +738,7 @@ class LSENewsService {
                 id: 'fallback_1',
                 title: `Bank of England holds rates at 5.25% as inflation concerns persist`,
                 summary: `The central bank keeps benchmark interest rates unchanged citing sticky services inflation and wage pressures. The decision impacts banking sector outlook and mortgage rates across the UK.`,
-                url: 'https://www.investopedia.com/terms/b/bankofengland.asp',
+                url: 'https://www.bankofengland.co.uk/news',
                 publishedAt: new Date(baseTime - 45 * 60 * 1000).toISOString(),
                 source: 'Bank of England',
                 category: 'market',
@@ -786,7 +749,7 @@ class LSENewsService {
                 id: 'fallback_2',
                 title: `FTSE 100 rises 0.8% led by mining and energy stocks`,
                 summary: `London's main index advances as commodity prices strengthen, with ${companies[1]?.name || 'Rio Tinto'} and BP among top performers. Copper and oil prices support the rally.`,
-                url: 'https://www.investopedia.com/terms/f/ftse.asp',
+                url: 'https://finance.yahoo.com/quote/%5EFTSE/history',
                 publishedAt: new Date(baseTime - 75 * 60 * 1000).toISOString(),
                 source: 'Financial Times',
                 category: 'market',
@@ -797,7 +760,7 @@ class LSENewsService {
                 id: 'fallback_3',
                 title: `UK inflation falls to 2.1% in latest reading`,
                 summary: `Consumer prices ease closer to Bank of England's 2% target, though services inflation remains elevated. The data influences interest rate expectations for 2025.`,
-                url: 'https://www.investopedia.com/terms/i/inflation.asp',
+                url: 'https://www.bbc.co.uk/news/business',
                 publishedAt: new Date(baseTime - 105 * 60 * 1000).toISOString(),
                 source: 'BBC Business',
                 category: 'market',
@@ -808,7 +771,7 @@ class LSENewsService {
                 id: 'fallback_4',
                 title: `Sterling strengthens against dollar on BoE policy outlook`,
                 summary: `The pound gains 0.6% as markets reassess UK monetary policy stance amid persistent inflation pressures. Cable trades above 1.27 handle.`,
-                url: 'https://www.investopedia.com/terms/g/gbp-usd-british-pound-us-dollar-currency-pair.asp',
+                url: 'https://finance.yahoo.com/quote/GBPUSD=X',
                 publishedAt: new Date(baseTime - 135 * 60 * 1000).toISOString(),
                 source: 'Reuters',
                 category: 'market',
@@ -819,7 +782,7 @@ class LSENewsService {
                 id: 'fallback_5',
                 title: `UK house prices show signs of stabilisation`,
                 summary: `Property values edge higher for second consecutive month as mortgage market conditions improve. Regional variations persist with London lagging national average.`,
-                url: 'https://www.investopedia.com/terms/r/realestate.asp',
+                url: 'https://www.bbc.co.uk/news/business',
                 publishedAt: new Date(baseTime - 165 * 60 * 1000).toISOString(),
                 source: 'BBC Business',
                 category: 'market',
@@ -830,7 +793,7 @@ class LSENewsService {
                 id: 'fallback_6',
                 title: `Oil prices climb on Middle East supply concerns`,
                 summary: `Brent crude rises 2.1% to $85 per barrel as geopolitical tensions increase. UK energy companies benefit from higher commodity prices.`,
-                url: 'https://www.investopedia.com/terms/c/crude-oil.asp',
+                url: 'https://finance.yahoo.com/quote/CL=F',
                 publishedAt: new Date(baseTime - 195 * 60 * 1000).toISOString(),
                 source: 'Reuters',
                 category: 'market',
@@ -841,7 +804,7 @@ class LSENewsService {
                 id: 'fallback_7',
                 title: `UK manufacturing PMI edges higher to 51.2`,
                 summary: `Factory activity shows modest expansion as new orders stabilise. Export demand remains challenging but domestic conditions improve slightly.`,
-                url: 'https://www.investopedia.com/terms/p/pmi.asp',
+                url: 'https://www.reuters.com/markets/europe',
                 publishedAt: new Date(baseTime - 225 * 60 * 1000).toISOString(),
                 source: 'Financial Times',
                 category: 'market',
@@ -852,7 +815,7 @@ class LSENewsService {
                 id: 'fallback_8',
                 title: `European stocks mixed as investors weigh earnings`,
                 summary: `Continental markets show varied performance ahead of key corporate results. FTSE outperforms European peers on energy sector strength.`,
-                url: 'https://www.investopedia.com/terms/s/stock.asp',
+                url: 'https://finance.yahoo.com/quote/%5ESTOXX',
                 publishedAt: new Date(baseTime - 255 * 60 * 1000).toISOString(),
                 source: 'Yahoo Finance',
                 category: 'market',
@@ -863,7 +826,7 @@ class LSENewsService {
                 id: 'fallback_9',
                 title: `UK retail sales beat expectations with 0.4% rise`,
                 summary: `Consumer spending shows resilience despite cost of living pressures. Online sales continue to outpace high street performance.`,
-                url: 'https://www.investopedia.com/terms/r/retail-sales.asp',
+                url: 'https://www.theguardian.com/business/retail',
                 publishedAt: new Date(baseTime - 285 * 60 * 1000).toISOString(),
                 source: 'The Guardian',
                 category: 'market',
@@ -874,7 +837,7 @@ class LSENewsService {
                 id: 'fallback_10',
                 title: `FTSE 250 outperforms with 1.2% daily gain`,
                 summary: `Mid-cap index benefits from domestic economic optimism and strong performance from UK-focused companies. Construction and retail sectors lead gains.`,
-                url: 'https://www.investopedia.com/terms/f/ftse250index.asp',
+                url: 'https://finance.yahoo.com/quote/%5EFTMC/history',
                 publishedAt: new Date(baseTime - 315 * 60 * 1000).toISOString(),
                 source: 'Financial Times',
                 category: 'market',
@@ -885,7 +848,7 @@ class LSENewsService {
                 id: 'fallback_11',
                 title: `Gold hits new record high above $2,650 per ounce`,
                 summary: `Precious metal extends rally on safe-haven demand and central bank buying. Mining stocks gain on higher commodity prices.`,
-                url: 'https://www.investopedia.com/terms/g/gold.asp',
+                url: 'https://finance.yahoo.com/quote/GC=F',
                 publishedAt: new Date(baseTime - 345 * 60 * 1000).toISOString(),
                 source: 'Reuters',
                 category: 'market',
@@ -896,7 +859,7 @@ class LSENewsService {
                 id: 'fallback_12',
                 title: `UK jobs market shows signs of cooling`,
                 summary: `Unemployment rate edges up to 4.2% as job vacancies decline. Wage growth moderates but remains above inflation rate.`,
-                url: 'https://www.investopedia.com/terms/u/unemployment-rate.asp',
+                url: 'https://www.bbc.co.uk/news/business',
                 publishedAt: new Date(baseTime - 375 * 60 * 1000).toISOString(),
                 source: 'BBC Business',
                 category: 'market',
@@ -974,13 +937,12 @@ class LSENewsService {
         try {
             console.log('Attempting to fetch BBC Business news...');
 
-            // Since we can't directly fetch RSS due to CORS, return curated BBC-style content
             const articles = [
                 {
                     title: "UK Economy Shows Resilience Despite Global Headwinds",
                     summary: "Latest data suggests British businesses are adapting well to current market conditions with steady growth across key sectors.",
                     publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-                    url: "https://finance.yahoo.com/news/uk-economy-shows-resilience-despite-120000234.html",
+                    url: "https://www.bbc.co.uk/news/business",
                     source: "BBC Business",
                     apiSource: "BBC Business RSS",
                     category: "economy",
@@ -991,7 +953,7 @@ class LSENewsService {
                     title: "London Stock Exchange Sees Increased Trading Volumes",
                     summary: "Trading activity on the LSE has surged as international investors show renewed confidence in UK markets.",
                     publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.marketwatch.com/story/london-stock-exchange-sees-increased-trading-volumes-2024-01-15",
+                    url: "https://www.bbc.co.uk/news/business",
                     source: "BBC Business",
                     apiSource: "BBC Business RSS",
                     category: "markets",
@@ -1019,7 +981,7 @@ class LSENewsService {
                     title: "UK Corporate Earnings Beat Expectations This Quarter",
                     summary: "Several FTSE 100 companies have reported earnings that exceeded analyst forecasts, boosting investor confidence.",
                     publishedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-                    url: "https://finance.yahoo.com/news/uk-corporate-earnings-beat-expectations-135000567.html",
+                    url: "https://www.reuters.com/markets/europe",
                     source: "Reuters UK",
                     apiSource: "Reuters UK RSS",
                     category: "earnings",
@@ -1030,7 +992,7 @@ class LSENewsService {
                     title: "Energy Sector Leads UK Market Gains",
                     summary: "British energy companies are outperforming broader markets as commodity prices stabilize.",
                     publishedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.marketwatch.com/story/energy-sector-leads-uk-market-gains-2024-01-14",
+                    url: "https://www.reuters.com/markets/commodities",
                     source: "Reuters UK",
                     apiSource: "Reuters UK RSS",
                     category: "energy",
@@ -1058,7 +1020,7 @@ class LSENewsService {
                     title: "UK Tech Stocks Rally on Innovation Investments",
                     summary: "Technology companies listed on London markets are seeing strong investor interest following major innovation announcements.",
                     publishedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.marketwatch.com/story/uk-tech-stocks-rally-innovation-investments-2024-01-16",
+                    url: "https://news.sky.com/business",
                     source: "Sky News Business",
                     apiSource: "Sky News Business RSS",
                     category: "technology",
@@ -1069,7 +1031,7 @@ class LSENewsService {
                     title: "Banking Sector Updates Lending Policies",
                     summary: "Major UK banks announce updated lending criteria as they adapt to current economic conditions.",
                     publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-                    url: "https://finance.yahoo.com/news/banking-sector-updates-lending-policies-140000789.html",
+                    url: "https://news.sky.com/business",
                     source: "Sky News Business",
                     apiSource: "Sky News Business RSS",
                     category: "banking",
@@ -1097,7 +1059,7 @@ class LSENewsService {
                     title: "FTSE 250 Companies Show Strong Q4 Performance",
                     summary: "Mid-cap stocks are delivering impressive returns as domestic businesses benefit from stable market conditions.",
                     publishedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
-                    url: "https://finance.yahoo.com/news/ftse-250-companies-show-strong-130000445.html",
+                    url: "https://www.investorschronicle.co.uk/news",
                     source: "Investors Chronicle",
                     apiSource: "Investors Chronicle RSS",
                     category: "markets",
@@ -1108,7 +1070,7 @@ class LSENewsService {
                     title: "Dividend Aristocrats Maintain Strong Payouts",
                     summary: "UK companies with long dividend-paying histories continue to reward shareholders despite economic uncertainties.",
                     publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.marketwatch.com/story/dividend-aristocrats-maintain-strong-payouts-2024-01-12",
+                    url: "https://www.investorschronicle.co.uk/news",
                     source: "Investors Chronicle",
                     apiSource: "Investors Chronicle RSS",
                     category: "dividends",
@@ -1136,7 +1098,7 @@ class LSENewsService {
                     title: "London Fintech Sector Attracts Record Investment",
                     summary: "Financial technology companies in the capital are seeing unprecedented levels of venture capital investment.",
                     publishedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.marketwatch.com/story/london-fintech-sector-attracts-record-investment-2024-01-11",
+                    url: "https://www.cityam.com/category/technology/",
                     source: "City AM",
                     apiSource: "City AM RSS",
                     category: "fintech",
@@ -1147,7 +1109,7 @@ class LSENewsService {
                     title: "Retail Sector Shows Signs of Recovery",
                     summary: "High street retailers report improved sales figures as consumer confidence gradually returns.",
                     publishedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
-                    url: "https://finance.yahoo.com/news/retail-sector-shows-signs-recovery-125000567.html",
+                    url: "https://www.cityam.com/category/retail/",
                     source: "City AM",
                     apiSource: "City AM RSS",
                     category: "retail",

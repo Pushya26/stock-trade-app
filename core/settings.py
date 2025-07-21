@@ -97,9 +97,9 @@ EMAIL_HOST_PASSWORD = 'iqiwiqmymtswmdly'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'User_Information',
+        'NAME': 'trade_data',
         'USER': 'postgres',
-        'PASSWORD': 'Pushya@26',
+        'PASSWORD': 'chris@20p0316',
         'HOST': 'localhost',
         'PORT': '5432',
     }
