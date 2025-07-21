@@ -1,24 +1,35 @@
-import logo from './logo.svg';
-import './App.css';
+// App.js
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import ThemeProvider from './components/ThemeProvider';
+import Login from './Login';
+import Portfolio from './Portfolio';
+import ForgotPassword from './forgotPassword';
+import ResetPassword from './ResetPassword';
+import Trade from './Trade';
+import Research from './Research';
+import Orders from './Orders';
+import Register from './Register';
+import Home from './Home';
+import News from './news/News';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <ThemeProvider>
+      <Router>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/portfolio" element={<Portfolio />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/trade" element={<Trade />} />
+          <Route path="/research" element={<Research />} />
+          <Route path="/news" element={<News />} />
+          <Route path="/orders" element={<Orders />} />
+        </Routes>
+      </Router>
+    </ThemeProvider>
   );
 }
 
