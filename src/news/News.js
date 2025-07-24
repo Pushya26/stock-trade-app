@@ -11,6 +11,7 @@ import { FiSearch, FiRefreshCw } from "react-icons/fi";
 import { FaSun, FaMoon } from "react-icons/fa";
 import { useTheme } from '../components/ThemeProvider';
 import './News.css';
+import NewsSection from './NewsSection';
 
 const News = () => {
     const navigate = useNavigate();
@@ -18,8 +19,7 @@ const News = () => {
     const { isDark, setIsDark } = useTheme();
 
     const [articles, setArticles] = useState([]);
-    const [filteredArticles, setFilteredArticles] = useState([]);
-    const [displayedArticlesCount, setDisplayedArticlesCount] = useState(20);
+    const [displayedArticlesCount, setDisplayedArticlesCount] = useState(6);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [filters, setFilters] = useState({
@@ -27,7 +27,6 @@ const News = () => {
         category: 'all',
         priority: 'mixed'
     });
-    const [breakingNews, setBreakingNews] = useState([]);
     const [marketMovingNews, setMarketMovingNews] = useState([]);
     const [lastUpdated, setLastUpdated] = useState(null);
     const [cash, setCash] = useState(0);
@@ -40,6 +39,12 @@ const News = () => {
     const [refreshInterval, setRefreshInterval] = useState(null);
     const [nextRefreshTime, setNextRefreshTime] = useState(null);
     const [showGeneratedNews, setShowGeneratedNews] = useState(false);
+    const [symbolFilter, setSymbolFilter] = useState('');
+    const [tagFilter, setTagFilter] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchLogic, setSearchLogic] = useState('or');
+    const [sortOrder, setSortOrder] = useState('date_desc');
 
     // Debug: Log article URLs when articles state changes
     useEffect(() => {
@@ -66,74 +71,50 @@ const News = () => {
         cardBg: isDark ? 'bg-slate-800' : 'bg-white',
     };
 
-    // Load all LSE news
-    const loadNews = useCallback(async (showLoading = true) => {
-        if (showLoading) {
+    // Fetch news from backend API with filters
+    useEffect(() => {
+        const fetchCachedNews = async () => {
             setLoading(true);
-        }
-        setError(null);
-
-        try {
-            console.log('Loading LSE news with priority:', filters.priority);
-
-            const [
-                newsArticles,
-                breakingArticles,
-                marketArticles
-            ] = await Promise.all([
-                lseNewsService.fetchLSENews({
-                    maxArticles: 150,
-                    priority: filters.priority,
-                    freshOnly: true
-                }),
-                lseNewsService.getBreakingNews(10),
-                lseNewsService.getMarketMovingNews(15)
-            ]);
-
-            setArticles(newsArticles);
-            setBreakingNews(breakingArticles);
-            setMarketMovingNews(marketArticles);
-            setLastUpdated(new Date());
-
-            // Separate generated/curated news from RSS feed news
-            const rssFeedNews = newsArticles.filter(article => article.isRSSFeed);
-            const generatedNews = newsArticles.filter(article => !article.isRSSFeed);
-
-            setArticles(rssFeedNews);
-            setShowGeneratedNews(generatedNews.length > 0);
-
-            // Update API status based on actual article source info            
-            // Check for actual RSS/API data vs curated content
-            const hasYahooRSS = rssFeedNews.some(a => a.apiSource?.includes('Yahoo Finance RSS') || a.source?.includes('Yahoo Finance RSS'));
-            const hasGuardianRSS = rssFeedNews.some(a => a.apiSource?.includes('Guardian Business RSS') || a.source?.includes('Guardian RSS'));
-            const hasBBCRSS = rssFeedNews.some(a => a.apiSource?.includes('BBC Business RSS'));
-
-            setApiStatus({
-                newsData: hasYahooRSS ? 'active' : 
-                         rssFeedNews.some(a => a.source?.includes('Yahoo Finance') || a.apiSource?.includes('Yahoo Finance')) ? 'limited' : 'limited',
-                finnhub: hasBBCRSS ? 'active' :
-                        rssFeedNews.some(a => a.source?.includes('BBC Business') || a.apiSource?.includes('BBC Business')) ? 'limited' : 'limited',
-                rss: hasGuardianRSS ? 'active' : 
-                     rssFeedNews.some(a => a.source?.includes('Guardian') || a.apiSource?.includes('Guardian Business')) ? 'limited' : 'limited'
-            });
-
-            console.log(`Loaded ${rssFeedNews.length} news articles from financial sources`);
-            console.log(`RSS Data - Yahoo: ${hasYahooRSS}, BBC: ${hasBBCRSS}, Guardian: ${hasGuardianRSS}`);
-
+            setError(null);
+            try {
+                const params = {
+                    limit: displayedArticlesCount,
+                    offset: 0
+                };
+                if (symbolFilter) params.symbol = symbolFilter;
+                if (tagFilter) params.tag = tagFilter;
+                if (categoryFilter) params.category = categoryFilter;
+                if (searchTerm) params.search = searchTerm;
+                if (searchTerm) params.search_logic = searchLogic;
+                if (sortOrder) params.sort = sortOrder;
+                const res = await axiosInstance.get("v1/trading/cached-news/", { params });
+                setArticles(res.data.results);
+                setLastUpdated(new Date());
             } catch (err) {
-            console.error('Error loading news:', err);
-            setError('Failed to load news from RSS feeds. Please check your internet connection or try again later.');
-            setApiStatus({
-                newsData: 'error',
-                finnhub: 'error',
-                rss: 'error'
-            });
-        } finally {
-            if (showLoading) {
+                setError("Failed to load news");
+            } finally {
                 setLoading(false);
             }
+        };
+        fetchCachedNews();
+    }, [displayedArticlesCount, symbolFilter, tagFilter, categoryFilter, searchTerm, searchLogic, sortOrder]);
+
+    // Load more handler
+    const handleLoadMore = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await axiosInstance.get("v1/trading/cached-news/", {
+                params: { limit: 6, offset: articles.length }
+            });
+            setArticles(prev => [...prev, ...res.data.results]);
+            setDisplayedArticlesCount(prev => prev + 6);
+        } catch (err) {
+            setError("Failed to load more news");
+        } finally {
+            setLoading(false);
         }
-    }, [filters.priority]);
+    };
 
     // Filter articles based on current filters
     useEffect(() => {
@@ -142,11 +123,8 @@ const News = () => {
             return article.url && typeof article.url === 'string' && article.url.trim() !== '';
         });
 
-        const filtered = lseNewsService.filterNews(validArticles, {
-            searchTerm: filters.searchTerm,
-            category: filters.category
-        });
-        setFilteredArticles(filtered);
+        // The original lseNewsService.filterNews logic is removed as per the edit hint.
+        // The articles state is now directly used for rendering and counts.
         setDisplayedArticlesCount(20); // Reset to initial count when filters change
     }, [articles, filters.searchTerm, filters.category]);
 
@@ -161,8 +139,7 @@ const News = () => {
             }
         };
         fetchPortfolioSummary();
-        loadNews();
-    }, [loadNews]);
+    }, []);
 
     // Auto-refresh functionality
     useEffect(() => {
@@ -170,7 +147,7 @@ const News = () => {
             console.log('Setting up auto-refresh every 5 minutes');
             const interval = setInterval(() => {
                 console.log('Auto-refreshing news...');
-                loadNews(false); // Don't show loading spinner for auto-refresh
+                setDisplayedArticlesCount((prev) => prev); // Triggers useEffect to refetch news
                 setNextRefreshTime(Date.now() + 5 * 60 * 1000); // Set next refresh time
             }, 5 * 60 * 1000); // 5 minutes
 
@@ -188,12 +165,11 @@ const News = () => {
             setRefreshInterval(null);
             setNextRefreshTime(null);
         }
-    }, [autoRefresh, loadNews, refreshInterval]);
+    }, [autoRefresh]);
 
     // Manual refresh
     const handleRefresh = () => {
-        loadNews();
-        // Reset the auto-refresh timer
+        setDisplayedArticlesCount((prev) => prev); // Triggers useEffect to refetch news
         if (autoRefresh) {
             setNextRefreshTime(Date.now() + 5 * 60 * 1000);
         }
@@ -219,13 +195,21 @@ const News = () => {
         }));
     };
 
-    const handlePriorityChange = (priority) => {
-        setFilters(prev => ({
-            ...prev,
-            priority
-        }));
-        // Reload with new priority
-        setTimeout(() => loadNews(), 100);
+    // Handle filter/search submit
+    const handleFilterSubmit = (e) => {
+        e.preventDefault();
+        setDisplayedArticlesCount(6); // Reset pagination on new search
+    };
+
+    // Clear all filters
+    const handleClearFilters = () => {
+        setSymbolFilter('');
+        setTagFilter('');
+        setCategoryFilter('');
+        setSearchTerm('');
+        setSearchLogic('or');
+        setSortOrder('date_desc');
+        setDisplayedArticlesCount(6);
     };
 
     // Format time ago
@@ -292,17 +276,18 @@ const News = () => {
                         </div>
                     </div>
                 </header>
-                
+
                 <main className="min-h-screen max-w-7xl mx-auto px-6 pt-[120px]">
                     <div className="flex items-center justify-center h-96">
                         <div className="text-center">
                             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                            <p className="text-xl mb-2">Loading LSE Financial News</p>
+                            <p className="text-xl mb-2">Loading Near-Live Global Market News</p>
                             <div className="text-sm space-y-1">
-                                <p>• Fetching from Yahoo Finance RSS feed</p>
-                                <p>• Retrieving BBC Business news</p>
+                                <p>• Fetching from Yahoo Finance RSS feeds (Headlines, Markets, Stocks)</p>
+                                <p>• Retrieving global market news from Yahoo Finance, CNBC</p>
                                 <p>• Processing {lseCompanies.getAllCompanies().length.toLocaleString()} LSE companies</p>
-                                <p>• Aggregating UK financial news feeds</p>
+                                <p>• Aggregating UK and international financial news feeds</p>
+                                <p>• Applying smart filtering for LSE relevance</p>
                             </div>
                         </div>
                     </div>
@@ -343,7 +328,7 @@ const News = () => {
                         </div>
                     </div>
                 </header>
-                
+
                 <main className="min-h-screen max-w-7xl mx-auto px-6 pt-[120px]">
                     <div className="flex items-center justify-center h-96">
                         <div className="text-center">
@@ -445,13 +430,13 @@ const News = () => {
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <div className="flex items-center gap-3 mb-2">
-                                <h1 className="text-3xl font-bold">LSE Financial News</h1>
+                                <h1 className="text-3xl font-bold">Global Market News</h1>
                                 <span className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full dark:bg-blue-900 dark:text-blue-300">
-                                    {lseCompanies.getAllCompanies().length.toLocaleString()} Companies
+                                    Live Feed
                                 </span>
                             </div>
                             <p className={`${themeStyles.textSecondary} text-lg`}>
-                                Real-time news for London Stock Exchange companies
+                                Near-live global market news with LSE focus from Yahoo Finance and major news sources
                             </p>
                         </div>
                         <div className="flex items-center space-x-4">
@@ -486,19 +471,19 @@ const News = () => {
 
                     {/* API Status */}
                     <div className="flex items-center gap-4 mb-4 text-sm">
-                        <span className={themeStyles.textSecondary}>RSS Aggregators:</span>
+                        <span className={themeStyles.textSecondary}>News Aggregators:</span>
                         <span className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${apiStatus.newsData === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'}`}>
-                            Yahoo Finance {apiStatus.newsData === 'active' ? '✓' : '⚠'}
+                            Yahoo Finance Live {apiStatus.newsData === 'active' ? '✓' : '⚠'}
                         </span>
                         <span className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${apiStatus.finnhub === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'}`}>
-                            BBC Business {apiStatus.finnhub === 'active' ? '✓' : '⚠'}
+                            Global Markets {apiStatus.finnhub === 'active' ? '✓' : '⚠'}
                         </span>
                         <span className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${apiStatus.rss === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'}`}>
-                            UK News Feeds {apiStatus.rss === 'active' ? '✓' : '⚠'}
+                            Yahoo Finance/CNBC {apiStatus.rss === 'active' ? '✓' : '⚠'}
                         </span>
                         {(apiStatus.newsData === 'limited' && apiStatus.finnhub === 'limited' && apiStatus.rss === 'limited') && (
                             <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
-                                📰 Showing curated LSE news
+                                📰 Showing curated global market news with LSE focus
                             </span>
                         )}
                         {autoRefresh && (
@@ -506,7 +491,7 @@ const News = () => {
                                 🔄 Auto-refreshing every 5 minutes
                                 {nextRefreshTime && (
                                     <span className="ml-1 opacity-75">
-                                        (next: {new Date(nextRefreshTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})
+                                        (next: {new Date(nextRefreshTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
                                     </span>
                                 )}
                             </span>
@@ -520,8 +505,8 @@ const News = () => {
 
                     {/* Filters */}
                     <div className="flex items-center gap-4 mb-6">
-                        <select 
-                            value={filters.category} 
+                        <select
+                            value={filters.category}
                             onChange={(e) => handleCategoryChange(e.target.value)}
                             className={`px-3 py-2 border rounded-lg ${themeStyles.cardBg} ${themeStyles.text} ${themeStyles.headerBorder}`}
                         >
@@ -529,166 +514,13 @@ const News = () => {
                             <option value="lse">LSE Specific</option>
                             <option value="market">Market General</option>
                         </select>
-                        <select 
-                            value={filters.priority} 
-                            onChange={(e) => handlePriorityChange(e.target.value)}
-                            className={`px-3 py-2 border rounded-lg ${themeStyles.cardBg} ${themeStyles.text} ${themeStyles.headerBorder}`}
-                        >
-                            <option value="mixed">Mixed Companies</option>
-                            <option value="major">Major Companies Only</option>
-                            <option value="all">All Companies</option>
-                        </select>
                         <span className={`${themeStyles.textMuted} text-sm`}>
-                            {filteredArticles.length} articles found
+                            {articles.length} articles found
                         </span>
                     </div>
                 </div>
-
-                {/* Breaking News */}
-                {breakingNews.length > 0 && (
-                    <div className={`${themeStyles.cardBg} rounded-lg border ${themeStyles.headerBorder} p-4 mb-6`}>
-                        <div className="flex items-center gap-3 mb-3">
-                            <span className="bg-red-500 text-white px-2 py-1 rounded text-sm font-bold">BREAKING</span>
-                            <span className={themeStyles.textSecondary}>{breakingNews.length} latest</span>
-                        </div>
-                        <div className="space-y-2">
-                            {breakingNews.map((article) => (
-                                <div key={article.id} className="flex items-start justify-between">
-<a 
-    href={article.url} 
-    target="_blank" 
-    rel="noopener noreferrer"
-    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex-1"
->
-    {article.title}
-</a>
-                                    <span className={`${themeStyles.textMuted} text-sm whitespace-nowrap ml-4`}>
-                                        {formatTimeAgo(article.publishedAt)}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Main Articles */}
-                    <div className="lg:col-span-2">
-                        <h2 className="text-xl font-semibold mb-4">
-                            All LSE News (Showing {Math.min(displayedArticlesCount, filteredArticles.length)} of {filteredArticles.length})
-                        </h2>
-                        <div className={`${themeStyles.cardBg} rounded-lg border ${themeStyles.headerBorder} overflow-hidden`}>
-                {filteredArticles.length === 0 ? (
-                    <div className="p-8 text-center">
-                        <FiSearch className={`w-12 h-12 ${themeStyles.textMuted} mx-auto mb-4`} />
-                        <h3 className="font-semibold mb-2">No articles found</h3>
-                        <p className={themeStyles.textSecondary}>Try adjusting your search terms or filters</p>
-                    </div>
-                ) : (
-                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                        {filteredArticles.slice(0, displayedArticlesCount).map((article) => (
-                            <div key={article.id} className="p-6 hover:bg-gray-50 dark:hover:bg-slate-750 transition-colors">
-                                <h3 className="font-semibold mb-2">
-<a 
-    href={article.url} 
-    target="_blank" 
-    rel="noopener noreferrer"
-    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-    title={article.isRSSFeed ? 'Click to read full article' : 'Curated/generated news, URL may be general'}
->
-    {article.title}
-</a>
-                                </h3>
-                                {article.summary && (
-                                    <p className={`${themeStyles.textSecondary} mb-3 line-clamp-3`}>
-                                        {article.summary}
-                                    </p>
-                                )}
-                                <div className="flex items-center justify-between text-sm">
-                                    <div className="flex items-center gap-4">
-                                        <span className={themeStyles.textMuted}>{article.source}</span>
-                                        <span className={themeStyles.textMuted}>{formatTimeAgo(article.publishedAt)}</span>
-                                        <span className={`px-2 py-1 rounded text-xs ${themeStyles.buttonSecondary}`}>
-                                            {article.apiSource}
-                                        </span>
-                                    </div>
-                                    <span className={`px-2 py-1 rounded text-xs ${
-                                        getRelevanceBadge(article.relevanceScore).text === 'High' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
-                                        getRelevanceBadge(article.relevanceScore).text === 'Medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
-                                        'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                                    }`}>
-                                        {getRelevanceBadge(article.relevanceScore).text}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                        
-                        {/* Load More Button */}
-                        {filteredArticles.length > displayedArticlesCount && (
-                            <div className="p-6 text-center border-t border-gray-200 dark:border-gray-700">
-                                <button
-                                    onClick={() => setDisplayedArticlesCount(prev => prev + 20)}
-                                    className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                                >
-                                    Load More Articles ({filteredArticles.length - displayedArticlesCount} remaining)
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                )}
-                        </div>
-                    </div>
-
-                    {/* Sidebar */}
-                    <div className="space-y-6">
-                        {/* Market Moving News */}
-                        {marketMovingNews.length > 0 && (
-                            <div className={`${themeStyles.cardBg} rounded-lg border ${themeStyles.headerBorder} p-4`}>
-                                <h3 className="font-semibold mb-4">Market Moving News</h3>
-                                <div className="space-y-4">
-                                    {marketMovingNews.map((article) => (
-                                        <div key={article.id}>
-                                            <h4 className="text-sm font-medium mb-1">
-                                                <a 
-                                                    href={article.url} 
-                                                    target="_blank" 
-                                                    rel="noopener noreferrer"
-                                                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
-                                                >
-                                                    {article.title}
-                                                </a>
-                                            </h4>
-                                            <div className="flex items-center justify-between text-xs">
-                                                <span className={themeStyles.textMuted}>{article.source}</span>
-                                                <span className={themeStyles.textMuted}>{formatTimeAgo(article.publishedAt)}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Statistics */}
-                        <div className={`${themeStyles.cardBg} rounded-lg border ${themeStyles.headerBorder} p-4`}>
-                            <h4 className="font-semibold mb-4">LSE Companies Tracked</h4>
-                            <div className="space-y-3">
-                                <div className="flex justify-between">
-                                    <span className={themeStyles.textSecondary}>Total Companies</span>
-                                    <span className="font-semibold">{lseCompanies.getAllCompanies().length.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className={themeStyles.textSecondary}>Major Companies</span>
-                                    <span className="font-semibold">{lseCompanies.getMajorCompanies().length}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className={themeStyles.textSecondary}>Articles Today</span>
-                                    <span className="font-semibold">{filteredArticles.length}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {/* Main Content Grid and rest of the JSX ... */}
+                <NewsSection />
             </main>
         </div>
     );

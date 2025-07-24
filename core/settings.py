@@ -97,9 +97,9 @@ EMAIL_HOST_PASSWORD = 'iqiwiqmymtswmdly'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'trade_data',
+        'NAME': 'User_Information',
         'USER': 'postgres',
-        'PASSWORD': 'chris@20p0316',
+        'PASSWORD': 'Pushya@26',
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -178,7 +178,15 @@ CELERY_BEAT_SCHEDULE = {
     'check-orders-every-15-seconds': {
         'task': 'trade_engine.execute_orders.execute_pending_orders',
         'schedule': 15.0,  # Every 30 seconds
-    }
+    },
+    'fetch-company-news-hourly': {
+        'task': 'trade_engine.tasks.fetch_and_cache_all_company_news',
+        'schedule': 3600.0,  # Every hour
+    },
+    'fetch-bulk-rss-articles-every-15-minutes': {
+        'task': 'trade_engine.tasks.fetch_and_cache_bulk_rss_articles',
+        'schedule': 900.0,  # Every 15 minutes (set to 600.0 for every 10 minutes)
+    },
 }
  
 

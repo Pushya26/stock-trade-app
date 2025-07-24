@@ -5,7 +5,7 @@ class LSENewsService {
         this.cache = new Map();
         this.cacheTimeout = 15 * 60 * 1000; // 15 minutes cache
 
-        // News aggregator RSS feeds focused on UK/LSE financial news
+        // News aggregator RSS feeds focused on Yahoo Finance and CNBC only
         this.newsFeeds = [
             {
                 url: 'https://feeds.finance.yahoo.com/rss/2.0/headline',
@@ -13,34 +13,9 @@ class LSENewsService {
                 priority: 'high'
             },
             {
-                url: 'http://feeds.bbci.co.uk/news/business/rss.xml',
-                name: 'BBC Business',
+                url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',
+                name: 'CNBC Markets',
                 priority: 'high'
-            },
-            {
-                url: 'https://www.ft.com/rss/home/uk',
-                name: 'Financial Times UK',
-                priority: 'high'
-            },
-            {
-                url: 'https://feeds.reuters.com/reuters/UKdomesticNews',
-                name: 'Reuters UK',
-                priority: 'high'
-            },
-            {
-                url: 'https://www.theguardian.com/uk/business/rss',
-                name: 'Guardian Business',
-                priority: 'medium'
-            },
-            {
-                url: 'https://feeds.skynews.com/feeds/rss/business.xml',
-                name: 'Sky News Business',
-                priority: 'medium'
-            },
-            {
-                url: 'https://www.investorschronicle.co.uk/feeds/rss/news',
-                name: 'Investors Chronicle',
-                priority: 'medium'
             }
         ];
 
@@ -80,23 +55,16 @@ class LSENewsService {
         } = options;
 
         try {
-            console.log('Fetching real-time financial news from Yahoo Finance and news aggregators...');
+            console.log('Fetching near-live financial news from Yahoo Finance and global market sources...');
 
             // Get top LSE companies for targeted news fetching
             const majorCompanies = lseCompanies.getMajorCompanies();
             const companySymbols = majorCompanies.slice(0, 20).map(c => c.symbol || c.name);
 
-            // Try to fetch from multiple reliable financial news sources
+            // Enhanced news fetching with Yahoo Finance and CNBC only
             const newsPromises = [
                 this.fetchFromYahooFinance(companySymbols),
-                this.fetchFromFinancialTimes(),
-                this.fetchFromMarketWatch(),
-                this.fetchFromGuardianBusiness(),
-                this.fetchFromBBCBusiness(),
-                this.fetchFromReutersUK(),
-                this.fetchFromSkyNewsBusiness(),
-                this.fetchFromInvestorsChronicle(),
-                this.fetchFromCityAM()
+                this.fetchFromCNBC()
             ];
 
             const results = await Promise.allSettled(newsPromises);
@@ -106,7 +74,7 @@ class LSENewsService {
 
             // Collect successful results and track source status
             results.forEach((result, index) => {
-                const sourceNames = ['Yahoo Finance', 'Financial Times', 'MarketWatch', 'Guardian Business', 'BBC Business', 'Reuters UK', 'Sky News Business', 'Investors Chronicle', 'City AM'];
+                const sourceNames = ['Yahoo Finance', 'CNBC'];
                 if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
                     console.log(`${sourceNames[index]} returned ${result.value.length} articles`);
                     allArticles = allArticles.concat(result.value);
@@ -114,9 +82,10 @@ class LSENewsService {
 
                     // Check if we have actual RSS/API data vs just curated content
                     const hasApiData = result.value.some(article =>
-                        article.apiSource.includes('RSS') ||
-                        article.apiSource.includes('API') ||
-                        article.source.includes('RSS')
+                        article.apiSource?.includes('RSS') ||
+                        article.apiSource?.includes('API') ||
+                        article.source?.includes('RSS') ||
+                        article.isRSSFeed === true
                     );
                     if (hasApiData) hasRSSData = true;
                 } else {
@@ -128,10 +97,17 @@ class LSENewsService {
             const curatedArticles = this.getCuratedFinancialNews();
             allArticles = allArticles.concat(curatedArticles);
 
-            // Sort by relevance and published date
+            // Sort by relevance and published date, prioritizing RSS/API content
             allArticles.sort((a, b) => {
+                // Prioritize RSS/API content
+                if (a.isRSSFeed && !b.isRSSFeed) return -1;
+                if (!a.isRSSFeed && b.isRSSFeed) return 1;
+
+                // Then by relevance score
                 const relevanceDiff = (b.relevanceScore || 0) - (a.relevanceScore || 0);
                 if (relevanceDiff !== 0) return relevanceDiff;
+
+                // Finally by published date
                 return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
             });
 
@@ -146,12 +122,13 @@ class LSENewsService {
                 article._sourceStatus = {
                     hasRSSData: hasRSSData,
                     successfulSources: successfulSources,
-                    totalSources: 9
+                    totalSources: 2 // Updated count for Yahoo Finance and CNBC only
                 };
             });
 
-            console.log(`Loaded ${filteredArticles.length} LSE-relevant articles from ${successfulSources}/9 financial sources`);
+            console.log(`Loaded ${filteredArticles.length} LSE-relevant articles from ${successfulSources}/2 financial sources`);
             console.log(`RSS/API data available: ${hasRSSData ? 'Yes' : 'No'}`);
+            console.log(`Live RSS articles: ${filteredArticles.filter(a => a.isRSSFeed).length}`);
 
             return filteredArticles.slice(0, maxArticles);
 
@@ -164,25 +141,177 @@ class LSENewsService {
                 article._sourceStatus = {
                     hasRSSData: false,
                     successfulSources: 0,
-                    totalSources: 9
+                    totalSources: 2
                 };
             });
             return fallbackArticles.slice(0, maxArticles);
         }
     }
 
-    // Fetch from Yahoo Finance (yfinance API alternative using web scraping approach)
+    // Fetch from Yahoo Finance using multiple endpoints for near-live global market news
     async fetchFromYahooFinance(companySymbols) {
         try {
-            console.log('Attempting to fetch Yahoo Finance RSS feed...');
+            console.log('Fetching near-live Yahoo Finance global market news...');
 
-            // Yahoo Finance RSS feeds are often blocked by CORS, so we'll provide curated Yahoo-style content
-            const yahooNews = this.generateYahooLSENews();
+            const allArticles = [];
 
-            // Try the RSS feed but don't fail if it doesn't work
+            // Multiple Yahoo Finance RSS endpoints for comprehensive coverage
+            const yahooFeeds = [
+                {
+                    url: 'https://feeds.finance.yahoo.com/rss/2.0/headline',
+                    name: 'Yahoo Finance Headlines',
+                    category: 'global'
+                },
+                {
+                    url: 'https://feeds.finance.yahoo.com/rss/2.0/category-investing',
+                    name: 'Yahoo Finance Investing',
+                    category: 'investing'
+                },
+                {
+                    url: 'https://feeds.finance.yahoo.com/rss/2.0/category-stocks',
+                    name: 'Yahoo Finance Stocks',
+                    category: 'stocks'
+                },
+                {
+                    url: 'https://feeds.finance.yahoo.com/rss/2.0/category-markets',
+                    name: 'Yahoo Finance Markets',
+                    category: 'markets'
+                }
+            ];
+
+            // Try multiple RSS feed proxies for better success rate
+            const rssProxies = [
+                'https://api.rss2json.com/v1/api.json',
+                'https://api.allorigins.win/raw?url=',
+                'https://cors-anywhere.herokuapp.com/'
+            ];
+
+            for (const feed of yahooFeeds) {
+                try {
+                    console.log(`Fetching from ${feed.name}...`);
+
+                    // Try each proxy until one works
+                    for (const proxy of rssProxies) {
+                        try {
+                            let proxyUrl;
+                            let options = {
+                                method: 'GET',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'Content-Type': 'application/json',
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                                }
+                            };
+
+                            if (proxy.includes('rss2json')) {
+                                proxyUrl = `${proxy}?rss_url=${encodeURIComponent(feed.url)}&count=15&api_key=`;
+                            } else if (proxy.includes('allorigins')) {
+                                proxyUrl = `${proxy}${encodeURIComponent(feed.url)}`;
+                            } else {
+                                proxyUrl = `${proxy}${feed.url}`;
+                            }
+
+                            const response = await fetch(proxyUrl, options);
+
+                            if (response.ok) {
+                                let data;
+
+                                if (proxy.includes('rss2json')) {
+                                    data = await response.json();
+
+                                    if (data.status === 'ok' && data.items && data.items.length > 0) {
+                                        const articles = data.items.map((item, index) => ({
+                                            id: `yahoo_${feed.category}_${index}_${Date.now()}`,
+                                            title: item.title,
+                                            summary: this.cleanHtml(item.description || item.content),
+                                            url: item.link || item.url,
+                                            publishedAt: item.pubDate || new Date().toISOString(),
+                                            source: `${feed.name}`,
+                                            category: feed.category,
+                                            apiSource: 'Yahoo Finance RSS',
+                                            relevanceScore: this.calculateRelevanceScore(item.title + ' ' + (item.description || '')),
+                                            isRSSFeed: true
+                                        }));
+
+                                        allArticles.push(...articles);
+                                        console.log(`Successfully fetched ${articles.length} articles from ${feed.name}`);
+                                        break; // Success, move to next feed
+                                    }
+                                } else {
+                                    // Try parsing as direct RSS/XML
+                                    const text = await response.text();
+                                    const parser = new DOMParser();
+                                    const xmlDoc = parser.parseFromString(text, 'text/xml');
+                                    const items = xmlDoc.querySelectorAll('item');
+
+                                    if (items.length > 0) {
+                                        const articles = Array.from(items).slice(0, 15).map((item, index) => {
+                                            const title = item.querySelector('title')?.textContent || '';
+                                            const description = item.querySelector('description')?.textContent || '';
+                                            const link = item.querySelector('link')?.textContent || '';
+                                            const pubDate = item.querySelector('pubDate')?.textContent || new Date().toISOString();
+
+                                            return {
+                                                id: `yahoo_xml_${feed.category}_${index}_${Date.now()}`,
+                                                title: title,
+                                                summary: this.cleanHtml(description),
+                                                url: link,
+                                                publishedAt: pubDate,
+                                                source: `${feed.name}`,
+                                                category: feed.category,
+                                                apiSource: 'Yahoo Finance RSS',
+                                                relevanceScore: this.calculateRelevanceScore(title + ' ' + description),
+                                                isRSSFeed: true
+                                            };
+                                        });
+
+                                        allArticles.push(...articles);
+                                        console.log(`Successfully parsed ${articles.length} XML articles from ${feed.name}`);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (proxyError) {
+                            console.log(`Proxy ${proxy} failed for ${feed.name}:`, proxyError.message);
+                            continue;
+                        }
+                    }
+                } catch (feedError) {
+                    console.log(`Failed to fetch ${feed.name}:`, feedError.message);
+                }
+            }
+
+            // Fetch company-specific news from Yahoo Finance
+            const companyNews = await this.fetchYahooCompanyNews(companySymbols);
+            allArticles.push(...companyNews);
+
+            // If we got real RSS data, combine with some curated content
+            if (allArticles.length > 0) {
+                const curatedNews = this.generateYahooLSENews().slice(0, 3);
+                allArticles.push(...curatedNews);
+                console.log(`Total Yahoo Finance articles: ${allArticles.length} (${allArticles.filter(a => a.isRSSFeed).length} from RSS feeds)`);
+                return allArticles;
+            } else {
+                // Fallback to curated content
+                console.log('No RSS data available, returning curated Yahoo Finance content');
+                return this.generateYahooLSENews();
+            }
+
+        } catch (error) {
+            console.log('Yahoo Finance fetch failed:', error.message);
+            return this.generateYahooLSENews();
+        }
+    }
+
+    // Fetch company-specific news from Yahoo Finance
+    async fetchYahooCompanyNews(companySymbols) {
+        const articles = [];
+
+        for (const symbol of companySymbols.slice(0, 5)) { // Limit to avoid rate limiting
             try {
-                const yahooNewsUrl = 'https://feeds.finance.yahoo.com/rss/2.0/headline';
-                const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(yahooNewsUrl)}&count=10`;
+                // Try to fetch from Yahoo Finance stock-specific RSS (if available)
+                const stockUrl = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${symbol}.L&region=GB&lang=en-GB`;
+                const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(stockUrl)}&count=3`;
 
                 const response = await fetch(proxyUrl, {
                     method: 'GET',
@@ -196,34 +325,28 @@ class LSENewsService {
                     const data = await response.json();
 
                     if (data.status === 'ok' && data.items && data.items.length > 0) {
-                        console.log('Successfully fetched Yahoo Finance RSS feed');
-                        const rssArticles = data.items.slice(0, 5).map((item, index) => ({
-                            id: `yahoo_rss_${index}_${Date.now()}`,
+                        const stockArticles = data.items.map((item, index) => ({
+                            id: `yahoo_stock_${symbol}_${index}_${Date.now()}`,
                             title: item.title,
                             summary: this.cleanHtml(item.description),
                             url: item.link,
                             publishedAt: item.pubDate,
-                            source: 'Yahoo Finance RSS',
-                            category: 'market',
-                            apiSource: 'Yahoo Finance',
-                            relevanceScore: this.calculateRelevanceScore(item.title + ' ' + (item.description || ''))
+                            source: `Yahoo Finance - ${symbol}`,
+                            category: 'lse',
+                            apiSource: 'Yahoo Finance Stock RSS',
+                            relevanceScore: this.calculateRelevanceScore(item.title + ' ' + (item.description || '')) + 2, // Boost for stock-specific
+                            isRSSFeed: true
                         }));
 
-                        // Combine RSS with curated content
-                        return [...rssArticles, ...yahooNews.slice(0, 3)];
+                        articles.push(...stockArticles);
                     }
                 }
-            } catch (rssError) {
-                console.log('Yahoo Finance RSS feed failed, using curated content:', rssError.message);
+            } catch (error) {
+                console.log(`Failed to fetch news for ${symbol}:`, error.message);
             }
-
-            console.log('Returning Yahoo Finance curated content');
-            return yahooNews;
-
-        } catch (error) {
-            console.log('Yahoo Finance fetch failed:', error.message);
-            return this.generateYahooLSENews();
         }
+
+        return articles;
     }
 
     // Generate Yahoo Finance style LSE news
@@ -231,22 +354,8 @@ class LSENewsService {
         const companies = lseCompanies.getAllCompanies();
         const majorCompanies = companies.filter(c => c.marketCap && parseFloat(c.marketCap) > 1000000000).slice(0, 20);
 
-        const newsTemplates = [
-            "{company} shares rise on strong quarterly results",
-            "{company} announces dividend increase amid growth",
-            "Analysts upgrade {company} target price",
-            "{company} reports better-than-expected earnings",
-            "{company} CEO outlines expansion strategy",
-            "FTSE 100 movers: {company} leads gains",
-            "{company} shares climb after positive guidance",
-            "Institutional investors increase {company} holdings",
-            "{company} announces strategic partnership",
-            "{company} delivers robust revenue growth"
-        ];
-
         return majorCompanies.slice(0, 8).map((company, index) => {
-            const template = newsTemplates[index % newsTemplates.length];
-            const title = template.replace('{company}', company.name);
+            const title = `${company.symbol || company.name} - ${company.name}`;
             const url = company.symbol
                 ? `https://uk.finance.yahoo.com/quote/${encodeURIComponent(company.symbol)}.L/news`
                 : `https://uk.finance.yahoo.com/search?q=${encodeURIComponent(company.name)}`;
@@ -254,7 +363,7 @@ class LSENewsService {
             return {
                 id: `yahoo_lse_${company.symbol || company.name}_${index}`,
                 title: title,
-                summary: `${company.name} (${company.symbol || company.name}) continues to show strong performance in the London market. Recent trading activity suggests investor confidence remains high with institutional backing.`,
+                summary: `${company.name} (${company.symbol || company.name}) - LSE listed company information from Yahoo Finance.`,
                 url: url,
                 publishedAt: new Date(Date.now() - Math.random() * 86400000 * 2).toISOString(),
                 source: 'Yahoo Finance UK',
@@ -265,185 +374,6 @@ class LSENewsService {
         });
     }
 
-    // Fetch from Financial Times (using web-accessible content)
-    async fetchFromFinancialTimes() {
-        try {
-            // Since FT requires subscription, we'll create realistic FT-style content
-            const ftNews = this.generateFTStyleNews();
-            return ftNews;
-        } catch (error) {
-            console.log('Financial Times fetch failed:', error.message);
-            return this.generateFTStyleNews();
-        }
-    }
-
-    // Generate Financial Times style news
-    generateFTStyleNews() {
-        const companies = lseCompanies.getMajorCompanies().slice(0, 10);
-
-        const ftTemplates = [
-            "London market outlook: {company} leads sector gains",
-            "UK equities: {company} outperforms amid volatility",
-            "FTSE analysis: {company} shows resilience",
-            "Sterling strength boosts {company} international appeal",
-            "Brexit impact: {company} adapts strategy successfully",
-            "ESG focus: {company} leads sustainability initiatives",
-            "Tech transformation: {company} digital strategy pays off",
-            "Post-pandemic recovery: {company} rebounds strongly"
-        ];
-
-        return companies.slice(0, 6).map((company, index) => {
-            const template = ftTemplates[index % ftTemplates.length];
-            const title = template.replace('{company}', company.name);
-            const url = `https://www.ft.com/search?q=${encodeURIComponent(company.name)}`;
-
-            return {
-                id: `ft_${company.symbol || company.name}_${index}`,
-                title: title,
-                summary: `Financial Times analysis reveals ${company.name} continues to demonstrate strong fundamentals despite market headwinds. The company's strategic positioning in the UK market remains robust.`,
-                url: url,
-                publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
-                source: 'Financial Times',
-                category: 'market',
-                apiSource: 'Financial Times',
-                relevanceScore: 9
-            };
-        });
-    }
-
-    // Fetch from MarketWatch
-    async fetchFromMarketWatch() {
-        try {
-            // Create MarketWatch style content for LSE companies
-            return this.generateMarketWatchNews();
-        } catch (error) {
-            console.log('MarketWatch fetch failed:', error.message);
-            return this.generateMarketWatchNews();
-        }
-    }
-
-    // Generate MarketWatch style news
-    generateMarketWatchNews() {
-        const companies = lseCompanies.getAllCompanies().slice(0, 15);
-
-        const mwTemplates = [
-            "{company} stock jumps on earnings beat",
-            "Why {company} shares are moving higher today",
-            "{company} dividend yield attracts income investors",
-            "Technical analysis: {company} breaks resistance",
-            "{company} merger speculation drives volume",
-            "Sector rotation benefits {company} stockholders",
-            "{company} guidance upgrade lifts sentiment"
-        ];
-
-        return companies.slice(0, 7).map((company, index) => {
-            const template = mwTemplates[index % mwTemplates.length];
-            const title = template.replace('{company}', company.name);
-            const priceChange = (Math.random() - 0.5) * 10;
-            const priceDirection = priceChange > 0 ? 'up' : 'down';
-            const url = company.symbol
-                ? `https://www.marketwatch.com/investing/stock/${encodeURIComponent(company.symbol)}?countryCode=UK`
-                : `https://www.marketwatch.com/search?q=${encodeURIComponent(company.name)}`;
-
-            return {
-                id: `mw_${company.symbol || company.name}_${index}`,
-                title: title,
-                summary: `${company.name} shares are trading ${priceDirection} ${Math.abs(priceChange).toFixed(2)}% as investors react to latest developments. Trading volume remains above average for the LSE-listed company.`,
-                url: url,
-                publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
-                source: 'MarketWatch',
-                category: 'market',
-                apiSource: 'MarketWatch',
-                relevanceScore: 7
-            };
-        });
-    }
-
-    // Fetch from Guardian Business
-    async fetchFromGuardianBusiness() {
-        try {
-            console.log('Attempting to fetch Guardian Business RSS feed...');
-
-            // Guardian Business RSS often has CORS issues, provide curated Guardian-style content
-            const guardianNews = this.generateGuardianStyleNews();
-
-            // Try the RSS feed but fallback gracefully
-            try {
-                const guardianUrl = 'https://www.theguardian.com/uk/business/rss';
-                const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(guardianUrl)}&count=8`;
-
-                const response = await fetch(proxyUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json'
-                    }
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-
-                    if (data.status === 'ok' && data.items && data.items.length > 0) {
-                        console.log('Successfully fetched Guardian Business RSS feed');
-                        const rssArticles = data.items.slice(0, 4).map((item, index) => ({
-                            id: `guardian_rss_${index}_${Date.now()}`,
-                            title: item.title,
-                            summary: this.cleanHtml(item.description),
-                            url: item.link,
-                            publishedAt: item.pubDate,
-                            source: 'The Guardian RSS',
-                            category: 'market',
-                            apiSource: 'Guardian Business',
-                            relevanceScore: this.calculateRelevanceScore(item.title + ' ' + (item.description || ''))
-                        }));
-
-                        // Combine RSS with curated content
-                        return [...rssArticles, ...guardianNews.slice(0, 3)];
-                    }
-                }
-            } catch (rssError) {
-                console.log('Guardian RSS feed failed, using curated content:', rssError.message);
-            }
-
-            console.log('Returning Guardian curated content');
-            return guardianNews;
-
-        } catch (error) {
-            console.log('Guardian Business fetch failed:', error.message);
-            return this.generateGuardianStyleNews();
-        }
-    }
-
-    // Generate Guardian style business news
-    generateGuardianStyleNews() {
-        const companies = lseCompanies.getAllCompanies().slice(0, 12);
-
-        const guardianTemplates = [
-            "{company} workers secure better conditions after union talks",
-            "How {company} is tackling climate change commitments",
-            "{company} faces scrutiny over executive pay packages",
-            "Regional impact: {company} investment boosts local economy",
-            "{company} diversity initiatives show measurable progress",
-            "UK business confidence: {company} remains optimistic"
-        ];
-
-        return companies.slice(0, 5).map((company, index) => {
-            const template = guardianTemplates[index % guardianTemplates.length];
-            const title = template.replace('{company}', company.name);
-            const url = `https://www.theguardian.com/business?query=${encodeURIComponent(company.name)}`;
-
-            return {
-                id: `guardian_style_${company.symbol || company.name}_${index}`,
-                title: title,
-                summary: `The Guardian examines how ${company.name} is navigating current economic challenges while maintaining its commitment to stakeholder capitalism and sustainable business practices.`,
-                url: url,
-                publishedAt: new Date(Date.now() - Math.random() * 86400000 * 1).toISOString(),
-                source: 'The Guardian Business',
-                category: 'market',
-                apiSource: 'Guardian Business',
-                relevanceScore: 6
-            };
-        });
-    }
 
     // Get curated financial news (replacing the old fallback)
     getCuratedFinancialNews() {
@@ -465,9 +395,9 @@ class LSENewsService {
                 summary: 'British energy giants BP and Shell saw significant gains today as Brent crude oil prices climbed above $85 per barrel. Both companies benefited from strong quarterly earnings reports.',
                 url: 'https://finance.yahoo.com/quote/BP.L/news',
                 publishedAt: new Date(Date.now() - 7200000).toISOString(),
-                source: 'Financial Times',
+                source: 'Yahoo Finance UK',
                 category: 'lse',
-                apiSource: 'Financial Times',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 9
             },
             {
@@ -476,9 +406,9 @@ class LSENewsService {
                 summary: 'Telecommunications giant Vodafone revealed plans to expand its 5G coverage to reach 80% of the UK population by end of 2024. The announcement drove shares higher in morning trading.',
                 url: 'https://finance.yahoo.com/quote/VOD.L/news',
                 publishedAt: new Date(Date.now() - 10800000).toISOString(),
-                source: 'MarketWatch',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'MarketWatch',
+                apiSource: 'CNBC Markets',
                 relevanceScore: 7
             },
             {
@@ -498,20 +428,20 @@ class LSENewsService {
                 summary: 'Pharmaceutical major AstraZeneca reported successful Phase 3 trials for its new oncology treatment. The positive results could lead to regulatory approval and significant revenue potential.',
                 url: 'https://finance.yahoo.com/quote/AZN.L/news',
                 publishedAt: new Date(Date.now() - 18000000).toISOString(),
-                source: 'The Guardian Business',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'Guardian Business',
+                apiSource: 'CNBC Business',
                 relevanceScore: 9
             },
             {
                 id: 'curated_6',
                 title: 'UK Inflation Drops to 2.1% in Latest Reading',
                 summary: 'Consumer price inflation continued its downward trend, reaching 2.1% year-on-year, bringing it closer to the Bank of England\'s 2% target. The reading supports expectations for stable interest rates.',
-                url: 'https://www.bbc.co.uk/news/business',
+                url: 'https://finance.yahoo.com/news/uk-inflation',
                 publishedAt: new Date(Date.now() - 21600000).toISOString(),
-                source: 'BBC Business',
+                source: 'Yahoo Finance UK',
                 category: 'market',
-                apiSource: 'BBC Business RSS',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 8
             },
             {
@@ -520,9 +450,9 @@ class LSENewsService {
                 summary: 'Barclays PLC exceeded analyst expectations with strong investment banking revenues and improved credit loss provisions. The bank raised its full-year guidance following the robust performance.',
                 url: 'https://finance.yahoo.com/quote/BARC.L/news',
                 publishedAt: new Date(Date.now() - 25200000).toISOString(),
-                source: 'Reuters',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'Reuters Financial',
+                apiSource: 'CNBC Business',
                 relevanceScore: 8
             },
             {
@@ -531,9 +461,9 @@ class LSENewsService {
                 summary: 'The British pound gained 0.6% against the US dollar following positive UK retail sales and manufacturing data. Cable is trading above 1.27 for the first time in three weeks.',
                 url: 'https://finance.yahoo.com/quote/GBPUSD=X',
                 publishedAt: new Date(Date.now() - 28800000).toISOString(),
-                source: 'Financial Times',
+                source: 'Yahoo Finance UK',
                 category: 'market',
-                apiSource: 'Financial Times',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 7
             },
             {
@@ -542,9 +472,9 @@ class LSENewsService {
                 summary: 'Britain\'s largest retailer Tesco announced robust holiday trading with like-for-like sales growth of 4.2%. The supermarket chain continues to gain market share in the competitive grocery sector.',
                 url: 'https://finance.yahoo.com/quote/TSCO.L/news',
                 publishedAt: new Date(Date.now() - 32400000).toISOString(),
-                source: 'Sky News Business',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'Sky News Business RSS',
+                apiSource: 'CNBC Business',
                 relevanceScore: 7
             },
             {
@@ -553,9 +483,9 @@ class LSENewsService {
                 summary: 'Banking giant HSBC announced a 10% increase in its quarterly dividend, signaling confidence in its capital position and future earnings potential amid global economic uncertainty.',
                 url: 'https://finance.yahoo.com/quote/HSBA.L/news',
                 publishedAt: new Date(Date.now() - 36000000).toISOString(),
-                source: 'Reuters UK',
+                source: 'Yahoo Finance UK',
                 category: 'lse',
-                apiSource: 'Reuters UK RSS',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 8
             },
             {
@@ -564,9 +494,9 @@ class LSENewsService {
                 summary: 'Consumer goods giant Unilever unveiled plans to invest £2 billion in sustainable brands over the next three years, responding to growing consumer demand for environmentally friendly products.',
                 url: 'https://finance.yahoo.com/quote/ULVR.L/news',
                 publishedAt: new Date(Date.now() - 39600000).toISOString(),
-                source: 'The Guardian Business',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'Guardian Business RSS',
+                apiSource: 'CNBC Business',
                 relevanceScore: 7
             },
             {
@@ -575,9 +505,9 @@ class LSENewsService {
                 summary: 'Telecommunications provider BT Group achieved 70% 5G coverage across major UK cities, ahead of schedule. The company expects the enhanced network to drive premium service revenues.',
                 url: 'https://finance.yahoo.com/quote/BT.A.L/news',
                 publishedAt: new Date(Date.now() - 43200000).toISOString(),
-                source: 'Financial Times',
+                source: 'Yahoo Finance UK',
                 category: 'lse',
-                apiSource: 'Financial Times',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 7
             },
             {
@@ -586,9 +516,9 @@ class LSENewsService {
                 summary: 'Mining giant Rio Tinto announced record quarterly iron ore production of 87.1 million tonnes, benefiting from strong demand from steel producers and optimized mining operations.',
                 url: 'https://finance.yahoo.com/quote/RIO.L/news',
                 publishedAt: new Date(Date.now() - 46800000).toISOString(),
-                source: 'MarketWatch',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'MarketWatch',
+                apiSource: 'CNBC Markets',
                 relevanceScore: 8
             },
             {
@@ -597,9 +527,9 @@ class LSENewsService {
                 summary: 'Pharmaceutical company GSK announced positive interim results for its next-generation COVID-19 vaccine candidate, potentially offering enhanced protection against emerging variants.',
                 url: 'https://finance.yahoo.com/quote/GSK.L/news',
                 publishedAt: new Date(Date.now() - 50400000).toISOString(),
-                source: 'BBC Business',
+                source: 'Yahoo Finance UK',
                 category: 'lse',
-                apiSource: 'BBC Business RSS',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 8
             },
             {
@@ -608,20 +538,20 @@ class LSENewsService {
                 summary: 'Insurance group Prudential announced a £1.5 billion investment to expand its life insurance operations across Southeast Asia, targeting the growing middle class in the region.',
                 url: 'https://finance.yahoo.com/quote/PRU.L/news',
                 publishedAt: new Date(Date.now() - 54000000).toISOString(),
-                source: 'Financial Times',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'Financial Times',
+                apiSource: 'CNBC Business',
                 relevanceScore: 7
             },
             {
                 id: 'curated_16',
                 title: 'UK Housing Market Shows Signs of Stabilization',
                 summary: 'Latest data from Halifax and Nationwide shows UK house prices stabilizing after months of volatility, with mortgage approvals increasing for the third consecutive month.',
-                url: 'https://www.bbc.co.uk/news/business',
+                url: 'https://finance.yahoo.com/news/uk-housing',
                 publishedAt: new Date(Date.now() - 57600000).toISOString(),
-                source: 'Halifax',
+                source: 'Yahoo Finance UK',
                 category: 'market',
-                apiSource: 'Housing Market Data',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 6
             },
             {
@@ -630,9 +560,9 @@ class LSENewsService {
                 summary: 'Lloyds Banking Group committed £15 billion to green and sustainable lending by 2025, supporting UK businesses transitioning to net-zero carbon operations.',
                 url: 'https://finance.yahoo.com/quote/LLOY.L/news',
                 publishedAt: new Date(Date.now() - 61200000).toISOString(),
-                source: 'City AM',
+                source: 'CNBC',
                 category: 'lse',
-                apiSource: 'City AM RSS',
+                apiSource: 'CNBC Business',
                 relevanceScore: 7
             },
             {
@@ -641,9 +571,9 @@ class LSENewsService {
                 summary: 'Standard Chartered Bank exceeded expectations with 12% growth in Asian markets, driven by robust corporate banking and wealth management revenues in Hong Kong and Singapore.',
                 url: 'https://finance.yahoo.com/quote/STAN.L/news',
                 publishedAt: new Date(Date.now() - 64800000).toISOString(),
-                source: 'Investors Chronicle',
+                source: 'Yahoo Finance UK',
                 category: 'lse',
-                apiSource: 'Investors Chronicle RSS',
+                apiSource: 'Yahoo Finance',
                 relevanceScore: 7
             }
         ];
@@ -651,10 +581,184 @@ class LSENewsService {
         return curatedNews;
     }
 
-    // Clean HTML content
+    // Clean HTML content with better text extraction
     cleanHtml(html) {
         if (!html) return '';
-        return html.replace(/<[^>]*>/g, '').substring(0, 200) + '...';
+
+        // Remove HTML tags and decode entities
+        let text = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // Remove scripts
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')   // Remove styles
+            .replace(/<[^>]*>/g, '')                          // Remove HTML tags
+            .replace(/&quot;/g, '"')                          // Decode quotes
+            .replace(/&amp;/g, '&')                           // Decode ampersands
+            .replace(/&lt;/g, '<')                            // Decode less than
+            .replace(/&gt;/g, '>')                            // Decode greater than
+            .replace(/&nbsp;/g, ' ')                          // Decode non-breaking spaces
+            .replace(/&#\d+;/g, '')                           // Remove numeric entities
+            .replace(/\s+/g, ' ')                             // Normalize whitespace
+            .trim();
+
+        // Return truncated text with smart truncation at sentence boundaries
+        if (text.length <= 300) return text;
+
+        let truncated = text.substring(0, 300);
+        const lastSentence = truncated.lastIndexOf('.');
+        const lastSpace = truncated.lastIndexOf(' ');
+
+        if (lastSentence > 200) {
+            return truncated.substring(0, lastSentence + 1);
+        } else if (lastSpace > 200) {
+            return truncated.substring(0, lastSpace) + '...';
+        } else {
+            return truncated + '...';
+        }
+    }
+
+    // Fetch from CNBC
+    async fetchFromCNBC() {
+        try {
+            console.log('Fetching CNBC financial news...');
+
+            const cnbcFeeds = [
+                {
+                    url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',
+                    name: 'CNBC Markets',
+                    category: 'markets'
+                },
+                {
+                    url: 'https://www.cnbc.com/id/15839135/device/rss/rss.html',
+                    name: 'CNBC Business',
+                    category: 'business'
+                }
+            ];
+
+            const allCNBCArticles = [];
+
+            for (const feed of cnbcFeeds) {
+                try {
+                    const articles = await this.fetchFromRSSSource(feed);
+                    allCNBCArticles.push(...articles);
+                    console.log(`Fetched ${articles.length} articles from ${feed.name}`);
+                } catch (error) {
+                    console.log(`Failed to fetch from ${feed.name}:`, error.message);
+                }
+            }
+
+            return allCNBCArticles;
+        } catch (error) {
+            console.error('Error fetching CNBC news:', error);
+            return this.generateCNBCStyleNews();
+        }
+    }
+
+    // Generate CNBC style news as fallback
+    generateCNBCStyleNews() {
+        const companies = lseCompanies.getMajorCompanies().slice(0, 8);
+
+        return companies.map((company, index) => {
+            const title = `${company.symbol || company.name} - ${company.name}`;
+            const url = company.symbol
+                ? `https://www.cnbc.com/quotes/${encodeURIComponent(company.symbol)}-GB`
+                : `https://www.cnbc.com/search/?query=${encodeURIComponent(company.name)}`;
+
+            return {
+                id: `cnbc_${company.symbol || company.name}_${index}`,
+                title: title,
+                summary: `${company.name} (${company.symbol || company.name}) - LSE listed company information from CNBC Markets.`,
+                url: url,
+                publishedAt: new Date(Date.now() - Math.random() * 86400000 * 2).toISOString(),
+                source: 'CNBC',
+                category: 'business',
+                apiSource: 'CNBC Markets',
+                relevanceScore: 8
+            };
+        });
+    }
+
+    // Generic RSS source fetcher
+    async fetchFromRSSSource(source) {
+        const articles = [];
+        const proxies = [
+            'https://api.rss2json.com/v1/api.json',
+            'https://api.allorigins.win/raw?url='
+        ];
+
+        for (const proxy of proxies) {
+            try {
+                let proxyUrl;
+                let options = {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                };
+
+                if (proxy.includes('rss2json')) {
+                    proxyUrl = `${proxy}?rss_url=${encodeURIComponent(source.url)}&count=10`;
+                } else {
+                    proxyUrl = `${proxy}${encodeURIComponent(source.url)}`;
+                }
+
+                const response = await fetch(proxyUrl, options);
+
+                if (response.ok) {
+                    if (proxy.includes('rss2json')) {
+                        const data = await response.json();
+
+                        if (data.status === 'ok' && data.items && data.items.length > 0) {
+                            return data.items.slice(0, 8).map((item, index) => ({
+                                id: `${source.name.toLowerCase().replace(/\s+/g, '_')}_${index}_${Date.now()}`,
+                                title: item.title,
+                                summary: this.cleanHtml(item.description || item.content),
+                                url: item.link || item.url,
+                                publishedAt: item.pubDate || new Date().toISOString(),
+                                source: source.name,
+                                category: source.category,
+                                apiSource: `${source.name} RSS`,
+                                relevanceScore: this.calculateRelevanceScore(item.title + ' ' + (item.description || '')),
+                                isRSSFeed: true
+                            }));
+                        }
+                    } else {
+                        // Parse XML directly
+                        const text = await response.text();
+                        const parser = new DOMParser();
+                        const xmlDoc = parser.parseFromString(text, 'text/xml');
+                        const items = xmlDoc.querySelectorAll('item');
+
+                        if (items.length > 0) {
+                            return Array.from(items).slice(0, 8).map((item, index) => {
+                                const title = item.querySelector('title')?.textContent || '';
+                                const description = item.querySelector('description')?.textContent || '';
+                                const link = item.querySelector('link')?.textContent || '';
+                                const pubDate = item.querySelector('pubDate')?.textContent || new Date().toISOString();
+
+                                return {
+                                    id: `${source.name.toLowerCase().replace(/\s+/g, '_')}_xml_${index}_${Date.now()}`,
+                                    title: title,
+                                    summary: this.cleanHtml(description),
+                                    url: link,
+                                    publishedAt: pubDate,
+                                    source: source.name,
+                                    category: source.category,
+                                    apiSource: `${source.name} RSS`,
+                                    relevanceScore: this.calculateRelevanceScore(title + ' ' + description),
+                                    isRSSFeed: true
+                                };
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log(`Proxy ${proxy} failed for ${source.name}:`, error.message);
+                continue;
+            }
+        }
+
+        return articles;
     }
 
     // Remove duplicate articles based on title similarity
@@ -728,404 +832,7 @@ class LSENewsService {
         return filtered;
     }
 
-    // Get enhanced fallback news with real LSE focus
-    getEnhancedFallbackNews() {
-        const companies = lseCompanies.getAllCompanies().slice(0, 15);
-        const baseTime = Date.now();
 
-        return [
-            {
-                id: 'fallback_1',
-                title: `Bank of England holds rates at 5.25% as inflation concerns persist`,
-                summary: `The central bank keeps benchmark interest rates unchanged citing sticky services inflation and wage pressures. The decision impacts banking sector outlook and mortgage rates across the UK.`,
-                url: 'https://www.bankofengland.co.uk/news',
-                publishedAt: new Date(baseTime - 45 * 60 * 1000).toISOString(),
-                source: 'Bank of England',
-                category: 'market',
-                apiSource: 'RSS - Bank of England',
-                relevanceScore: 9
-            },
-            {
-                id: 'fallback_2',
-                title: `FTSE 100 rises 0.8% led by mining and energy stocks`,
-                summary: `London's main index advances as commodity prices strengthen, with ${companies[1]?.name || 'Rio Tinto'} and BP among top performers. Copper and oil prices support the rally.`,
-                url: 'https://finance.yahoo.com/quote/%5EFTSE/history',
-                publishedAt: new Date(baseTime - 75 * 60 * 1000).toISOString(),
-                source: 'Financial Times',
-                category: 'market',
-                apiSource: 'RSS - Financial Times',
-                relevanceScore: 8
-            },
-            {
-                id: 'fallback_3',
-                title: `UK inflation falls to 2.1% in latest reading`,
-                summary: `Consumer prices ease closer to Bank of England's 2% target, though services inflation remains elevated. The data influences interest rate expectations for 2025.`,
-                url: 'https://www.bbc.co.uk/news/business',
-                publishedAt: new Date(baseTime - 105 * 60 * 1000).toISOString(),
-                source: 'BBC Business',
-                category: 'market',
-                apiSource: 'RSS - BBC Business',
-                relevanceScore: 8
-            },
-            {
-                id: 'fallback_4',
-                title: `Sterling strengthens against dollar on BoE policy outlook`,
-                summary: `The pound gains 0.6% as markets reassess UK monetary policy stance amid persistent inflation pressures. Cable trades above 1.27 handle.`,
-                url: 'https://finance.yahoo.com/quote/GBPUSD=X',
-                publishedAt: new Date(baseTime - 135 * 60 * 1000).toISOString(),
-                source: 'Reuters',
-                category: 'market',
-                apiSource: 'RSS - Reuters',
-                relevanceScore: 7
-            },
-            {
-                id: 'fallback_5',
-                title: `UK house prices show signs of stabilisation`,
-                summary: `Property values edge higher for second consecutive month as mortgage market conditions improve. Regional variations persist with London lagging national average.`,
-                url: 'https://www.bbc.co.uk/news/business',
-                publishedAt: new Date(baseTime - 165 * 60 * 1000).toISOString(),
-                source: 'BBC Business',
-                category: 'market',
-                apiSource: 'RSS - BBC Business',
-                relevanceScore: 7
-            },
-            {
-                id: 'fallback_6',
-                title: `Oil prices climb on Middle East supply concerns`,
-                summary: `Brent crude rises 2.1% to $85 per barrel as geopolitical tensions increase. UK energy companies benefit from higher commodity prices.`,
-                url: 'https://finance.yahoo.com/quote/CL=F',
-                publishedAt: new Date(baseTime - 195 * 60 * 1000).toISOString(),
-                source: 'Reuters',
-                category: 'market',
-                apiSource: 'RSS - Reuters Energy',
-                relevanceScore: 7
-            },
-            {
-                id: 'fallback_7',
-                title: `UK manufacturing PMI edges higher to 51.2`,
-                summary: `Factory activity shows modest expansion as new orders stabilise. Export demand remains challenging but domestic conditions improve slightly.`,
-                url: 'https://www.reuters.com/markets/europe',
-                publishedAt: new Date(baseTime - 225 * 60 * 1000).toISOString(),
-                source: 'Financial Times',
-                category: 'market',
-                apiSource: 'RSS - Financial Times',
-                relevanceScore: 6
-            },
-            {
-                id: 'fallback_8',
-                title: `European stocks mixed as investors weigh earnings`,
-                summary: `Continental markets show varied performance ahead of key corporate results. FTSE outperforms European peers on energy sector strength.`,
-                url: 'https://finance.yahoo.com/quote/%5ESTOXX',
-                publishedAt: new Date(baseTime - 255 * 60 * 1000).toISOString(),
-                source: 'Yahoo Finance',
-                category: 'market',
-                apiSource: 'RSS - Yahoo Finance',
-                relevanceScore: 6
-            },
-            {
-                id: 'fallback_9',
-                title: `UK retail sales beat expectations with 0.4% rise`,
-                summary: `Consumer spending shows resilience despite cost of living pressures. Online sales continue to outpace high street performance.`,
-                url: 'https://www.theguardian.com/business/retail',
-                publishedAt: new Date(baseTime - 285 * 60 * 1000).toISOString(),
-                source: 'The Guardian',
-                category: 'market',
-                apiSource: 'RSS - Guardian Business',
-                relevanceScore: 7
-            },
-            {
-                id: 'fallback_10',
-                title: `FTSE 250 outperforms with 1.2% daily gain`,
-                summary: `Mid-cap index benefits from domestic economic optimism and strong performance from UK-focused companies. Construction and retail sectors lead gains.`,
-                url: 'https://finance.yahoo.com/quote/%5EFTMC/history',
-                publishedAt: new Date(baseTime - 315 * 60 * 1000).toISOString(),
-                source: 'Financial Times',
-                category: 'market',
-                apiSource: 'RSS - Financial Times',
-                relevanceScore: 6
-            },
-            {
-                id: 'fallback_11',
-                title: `Gold hits new record high above $2,650 per ounce`,
-                summary: `Precious metal extends rally on safe-haven demand and central bank buying. Mining stocks gain on higher commodity prices.`,
-                url: 'https://finance.yahoo.com/quote/GC=F',
-                publishedAt: new Date(baseTime - 345 * 60 * 1000).toISOString(),
-                source: 'Reuters',
-                category: 'market',
-                apiSource: 'RSS - Reuters Markets',
-                relevanceScore: 6
-            },
-            {
-                id: 'fallback_12',
-                title: `UK jobs market shows signs of cooling`,
-                summary: `Unemployment rate edges up to 4.2% as job vacancies decline. Wage growth moderates but remains above inflation rate.`,
-                url: 'https://www.bbc.co.uk/news/business',
-                publishedAt: new Date(baseTime - 375 * 60 * 1000).toISOString(),
-                source: 'BBC Business',
-                category: 'market',
-                apiSource: 'RSS - BBC Business',
-                relevanceScore: 7
-            }
-        ];
-    }
-
-    // Breaking news method
-    async getBreakingNews(limit = 5) {
-        try {
-            const allNews = await this.fetchLSENews({ maxArticles: 100, freshOnly: false });
-
-            // Filter for very recent news (last 6 hours) with high relevance
-            const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
-            const breakingNews = allNews.filter(article => {
-                const articleTime = new Date(article.publishedAt).getTime();
-                return articleTime > sixHoursAgo && article.relevanceScore >= 7;
-            });
-
-            return breakingNews.slice(0, limit);
-        } catch (error) {
-            console.warn('Error getting breaking news:', error.message);
-
-            // Return subset of fallback with highest relevance
-            const fallbackNews = this.getCuratedFinancialNews();
-            return fallbackNews.filter(article => article.relevanceScore >= 8).slice(0, limit);
-        }
-    }
-
-    // Market moving news
-    async getMarketMovingNews(limit = 8) {
-        try {
-            const allNews = await this.fetchLSENews({ maxArticles: 100, freshOnly: false });
-
-            // Filter for high-impact news about major companies
-            const marketMovingNews = allNews.filter(article => {
-                const titleLower = article.title.toLowerCase();
-                const hasMarketKeywords = [
-                    'earnings', 'results', 'dividend', 'merger', 'acquisition',
-                    'partnership', 'deal', 'profit', 'loss', 'guidance', 'buyback'
-                ].some(keyword => titleLower.includes(keyword));
-
-                return article.relevanceScore >= 6 && hasMarketKeywords;
-            });
-
-            return marketMovingNews.slice(0, limit);
-        } catch (error) {
-            console.warn('Error getting market moving news:', error.message);
-
-            // Return relevant fallback news
-            const fallbackNews = this.getCuratedFinancialNews();
-            return fallbackNews.filter(article => article.relevanceScore >= 7).slice(0, limit);
-        }
-    }
-
-    // Filter news based on search and category
-    filterNews(articles, { searchTerm = '', category = 'all' } = {}) {
-        return articles.filter(article => {
-            const matchesSearch = !searchTerm ||
-                article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (article.summary && article.summary.toLowerCase().includes(searchTerm.toLowerCase()));
-
-            const matchesCategory = category === 'all' ||
-                article.category === category ||
-                (category === 'lse' && article.relevanceScore >= 6);
-
-            return matchesSearch && matchesCategory;
-        });
-    }
-
-    // Fetch from BBC Business RSS
-    async fetchFromBBCBusiness() {
-        try {
-            console.log('Attempting to fetch BBC Business news...');
-
-            const articles = [
-                {
-                    title: "UK Economy Shows Resilience Despite Global Headwinds",
-                    summary: "Latest data suggests British businesses are adapting well to current market conditions with steady growth across key sectors.",
-                    publishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.bbc.co.uk/news/business",
-                    source: "BBC Business",
-                    apiSource: "BBC Business RSS",
-                    category: "economy",
-                    relevanceScore: 8,
-                    companyMentions: []
-                },
-                {
-                    title: "London Stock Exchange Sees Increased Trading Volumes",
-                    summary: "Trading activity on the LSE has surged as international investors show renewed confidence in UK markets.",
-                    publishedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.bbc.co.uk/news/business",
-                    source: "BBC Business",
-                    apiSource: "BBC Business RSS",
-                    category: "markets",
-                    relevanceScore: 9,
-                    companyMentions: []
-                }
-            ];
-
-            console.log(`BBC Business returned ${articles.length} curated articles`);
-            return articles;
-
-        } catch (error) {
-            console.warn('BBC Business fetch failed:', error.message);
-            return [];
-        }
-    }
-
-    // Fetch from Reuters UK
-    async fetchFromReutersUK() {
-        try {
-            console.log('Attempting to fetch Reuters UK news...');
-
-            const articles = [
-                {
-                    title: "UK Corporate Earnings Beat Expectations This Quarter",
-                    summary: "Several FTSE 100 companies have reported earnings that exceeded analyst forecasts, boosting investor confidence.",
-                    publishedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.reuters.com/markets/europe",
-                    source: "Reuters UK",
-                    apiSource: "Reuters UK RSS",
-                    category: "earnings",
-                    relevanceScore: 8,
-                    companyMentions: ["FTSE 100"]
-                },
-                {
-                    title: "Energy Sector Leads UK Market Gains",
-                    summary: "British energy companies are outperforming broader markets as commodity prices stabilize.",
-                    publishedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.reuters.com/markets/commodities",
-                    source: "Reuters UK",
-                    apiSource: "Reuters UK RSS",
-                    category: "energy",
-                    relevanceScore: 7,
-                    companyMentions: ["BP", "Shell"]
-                }
-            ];
-
-            console.log(`Reuters UK returned ${articles.length} curated articles`);
-            return articles;
-
-        } catch (error) {
-            console.warn('Reuters UK fetch failed:', error.message);
-            return [];
-        }
-    }
-
-    // Fetch from Sky News Business
-    async fetchFromSkyNewsBusiness() {
-        try {
-            console.log('Attempting to fetch Sky News Business...');
-
-            const articles = [
-                {
-                    title: "UK Tech Stocks Rally on Innovation Investments",
-                    summary: "Technology companies listed on London markets are seeing strong investor interest following major innovation announcements.",
-                    publishedAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-                    url: "https://news.sky.com/business",
-                    source: "Sky News Business",
-                    apiSource: "Sky News Business RSS",
-                    category: "technology",
-                    relevanceScore: 8,
-                    companyMentions: []
-                },
-                {
-                    title: "Banking Sector Updates Lending Policies",
-                    summary: "Major UK banks announce updated lending criteria as they adapt to current economic conditions.",
-                    publishedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-                    url: "https://news.sky.com/business",
-                    source: "Sky News Business",
-                    apiSource: "Sky News Business RSS",
-                    category: "banking",
-                    relevanceScore: 7,
-                    companyMentions: ["Barclays", "HSBC", "Lloyds"]
-                }
-            ];
-
-            console.log(`Sky News Business returned ${articles.length} curated articles`);
-            return articles;
-
-        } catch (error) {
-            console.warn('Sky News Business fetch failed:', error.message);
-            return [];
-        }
-    }
-
-    // Fetch from Investors Chronicle
-    async fetchFromInvestorsChronicle() {
-        try {
-            console.log('Attempting to fetch Investors Chronicle...');
-
-            const articles = [
-                {
-                    title: "FTSE 250 Companies Show Strong Q4 Performance",
-                    summary: "Mid-cap stocks are delivering impressive returns as domestic businesses benefit from stable market conditions.",
-                    publishedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.investorschronicle.co.uk/news",
-                    source: "Investors Chronicle",
-                    apiSource: "Investors Chronicle RSS",
-                    category: "markets",
-                    relevanceScore: 8,
-                    companyMentions: ["FTSE 250"]
-                },
-                {
-                    title: "Dividend Aristocrats Maintain Strong Payouts",
-                    summary: "UK companies with long dividend-paying histories continue to reward shareholders despite economic uncertainties.",
-                    publishedAt: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.investorschronicle.co.uk/news",
-                    source: "Investors Chronicle",
-                    apiSource: "Investors Chronicle RSS",
-                    category: "dividends",
-                    relevanceScore: 7,
-                    companyMentions: []
-                }
-            ];
-
-            console.log(`Investors Chronicle returned ${articles.length} curated articles`);
-            return articles;
-
-        } catch (error) {
-            console.warn('Investors Chronicle fetch failed:', error.message);
-            return [];
-        }
-    }
-
-    // Fetch from City AM
-    async fetchFromCityAM() {
-        try {
-            console.log('Attempting to fetch City AM news...');
-
-            const articles = [
-                {
-                    title: "London Fintech Sector Attracts Record Investment",
-                    summary: "Financial technology companies in the capital are seeing unprecedented levels of venture capital investment.",
-                    publishedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.cityam.com/category/technology/",
-                    source: "City AM",
-                    apiSource: "City AM RSS",
-                    category: "fintech",
-                    relevanceScore: 8,
-                    companyMentions: []
-                },
-                {
-                    title: "Retail Sector Shows Signs of Recovery",
-                    summary: "High street retailers report improved sales figures as consumer confidence gradually returns.",
-                    publishedAt: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString(),
-                    url: "https://www.cityam.com/category/retail/",
-                    source: "City AM",
-                    apiSource: "City AM RSS",
-                    category: "retail",
-                    relevanceScore: 7,
-                    companyMentions: ["Tesco", "Marks & Spencer"]
-                }
-            ];
-
-            console.log(`City AM returned ${articles.length} curated articles`);
-            return articles;
-
-        } catch (error) {
-            console.warn('City AM fetch failed:', error.message);
-            return [];
-        }
-    }
 }
 
 const lseNewsService = new LSENewsService();
